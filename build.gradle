@@ -37,11 +37,15 @@ tasks.withType(JavaCompile).configureEach {
     }
 }
 
+// Add gradle project version to each version placeholder in sources
 processResources {
-    def props = [version: version]
-    inputs.properties props
-    filteringCharset 'UTF-8'
-    filesMatching('plugin.yml') {
-        expand props
-    }
+    filter { String line -> line.replace('${version}', project.version.toString()) }
 }
+
+task processSources(type: Sync) {
+    from sourceSets.main.java.srcDirs
+    filter { String line -> line.replace('${version}', project.version.toString()) }
+    into "$buildDir/src"
+}
+
+compileJava.source = processSources.outputs

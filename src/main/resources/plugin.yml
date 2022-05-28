@@ -6,3 +6,8 @@ load: STARTUP
 authors: [ ItsMCB ]
 description: Modern Minecraft world management solution
 website: https://github.com/ItsMCB/Voyage
+commands:
+  voyage:
+      description: Main voyage command
+  world:
+    description: Configure worlds

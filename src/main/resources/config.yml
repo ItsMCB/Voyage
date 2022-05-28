@@ -1,0 +1,10 @@
+#
+# Voyage Config v${version}
+#
+
+# Will log debug information to the console. Meant for developers or bug hunters.
+enable_debug: true
+
+# If true, Voyage will take control of handling worlds.
+# Might want to disable this if you're using multiple world managers.
+handle_worlds: true
