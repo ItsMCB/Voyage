@@ -71,4 +71,6 @@ public class VoidGenerator extends ChunkGenerator {
         blockLocation.getBlock().setType(Material.BEDROCK);
         return spawnLocation;
     }
+
+
 }

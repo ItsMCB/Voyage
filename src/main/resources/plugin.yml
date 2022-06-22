@@ -6,8 +6,14 @@ load: STARTUP
 authors: [ ItsMCB ]
 description: Modern Minecraft world management solution
 website: https://github.com/ItsMCB/Voyage
+depend:
+  - VexelCore
+softdepend:
+  - PlaceholderAPI
 commands:
   voyage:
       description: Main voyage command
   world:
     description: Configure worlds
+  entity:
+    description: Move or copy entities in or across worlds

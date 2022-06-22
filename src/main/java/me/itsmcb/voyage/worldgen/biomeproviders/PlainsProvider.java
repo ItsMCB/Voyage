@@ -9,6 +9,7 @@ import java.util.List;
 
 public class PlainsProvider extends BiomeProvider {
 
+    // TODO change to be "BiomeProvider" and not hardcode Plains biome
     @Override
     public Biome getBiome(WorldInfo worldInfo, int x, int y, int z) {
         return Biome.PLAINS;

@@ -6,11 +6,11 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.jetbrains.annotations.NotNull;
 
-public class Main implements CommandExecutor {
+public class VoyageCMD implements CommandExecutor {
 
     private me.itsmcb.voyage.Voyage instance;
 
-    public Main(Voyage instance) {
+    public VoyageCMD(Voyage instance) {
         this.instance = instance;
     }
 
