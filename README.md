@@ -46,7 +46,7 @@ worlds:
 ```
 
 ## Superflat
-NOTE: The block generation height of the void world can be customized by adding `:<height as int>` to the end of the generator configuration section.
+NOTE: The block generation height of the superflat world can be customized by adding `:<height as int>` to the end of the generator configuration section.
 
 ```yaml
 worlds:
