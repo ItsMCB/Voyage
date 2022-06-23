@@ -54,7 +54,7 @@ public class EntityCMD implements CommandExecutor {
                 }
                 return true;
             }
-            if (cmdHelper.isCalling("ride")) {
+            if (cmdHelper.isCalling("ride","mount")) {
                 if (hasSelectedEntity(player)) {
                     Entity selectedEntity = Bukkit.getEntity(instance.selectedEntities.get(player.getUniqueId()));
                     selectedEntity.addPassenger(player);

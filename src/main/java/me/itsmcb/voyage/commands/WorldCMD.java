@@ -6,6 +6,7 @@ import me.itsmcb.vexelcore.common.api.command.CMDHelper;
 import me.itsmcb.voyage.FormatUtils;
 import me.itsmcb.voyage.Voyage;
 import org.bukkit.Bukkit;
+import org.bukkit.GameRule;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -53,6 +54,7 @@ public class WorldCMD implements CommandExecutor {
                         "&7========== &6 World Information &7 ==========",
                         FormatUtils.format("Name", world.getName()),
                         FormatUtils.format("Environment", world.getEnvironment().name()),
+                        FormatUtils.format("Generator", (world.getGenerator()==null) ? "Default" : world.getGenerator().getClass().getName()),
                         FormatUtils.format("Difficulty", world.getDifficulty().name()),
                         FormatUtils.format("Loaded chunks", world.getLoadedChunks().length+""),
                         FormatUtils.format("Chunk count", world.getChunkCount()+""),
@@ -87,8 +89,34 @@ public class WorldCMD implements CommandExecutor {
                 Msg.send(sender, "Delete world txt");
             }
             if (cmdHelper.argEquals(0,"option")) {
-                // option <world name> <option> <value>
-                Msg.send(sender, "Delete world txt");
+                if (cmdHelper.argEquals(2, "time")) {
+                    if (cmdHelper.argEquals(3, "freeze")) {
+                        world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
+                        Msg.sendResponsive(AudioResponse.SUCCESS, sender, "&bDaylight cycle &3has been disabled.");
+                        return true;
+                    }
+                    if (cmdHelper.argEquals(3, "unfreeze")) {
+                        world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, true);
+                        Msg.sendResponsive(AudioResponse.SUCCESS, sender, "&bDaylight cycle &3has been enabled.");
+                        return true;
+                    }
+                }
+                if (cmdHelper.argEquals(2, "fire","firespread")) {
+                    if (cmdHelper.argEquals(3, "on")) {
+                        world.setGameRule(GameRule.DO_FIRE_TICK, true);
+                        Msg.sendResponsive(AudioResponse.SUCCESS, sender, "&bFire spread &3has been enabled.");
+                        return true;
+                    }
+                    if (cmdHelper.argEquals(3, "off")) {
+                        world.setGameRule(GameRule.DO_FIRE_TICK, false);
+                        Msg.sendResponsive(AudioResponse.SUCCESS, sender, "&bFire spread &3has been disabled.");
+                        return true;
+                    }
+                }
+                // TODO better argument help
+                // TODO also, maybe show current value instead of help
+                Msg.send(sender, "&cOptions: fire on, fire off");
+                return true;
             }
             if (cmdHelper.argEquals(0,"teleport","tp")) {
                 if (sender instanceof Player player) {
@@ -116,7 +144,7 @@ public class WorldCMD implements CommandExecutor {
                 FormatUtils.format("/world import <world name>", "Loads world and creates editable configuration"),
                 FormatUtils.format("/world load", "Temporarily import a world until the next server restart"),
                 FormatUtils.format("/world teleport <world name>", "Teleport to world spawn"),
-                FormatUtils.format("/world option <world name> <key> <value>", "Configure world options")
+                FormatUtils.format("/world option <world name> <option> <value>", "Configure world options")
         );
         return false;
     }

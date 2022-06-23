@@ -17,3 +17,5 @@ commands:
     description: Configure worlds
   entity:
     description: Move or copy entities in or across worlds
+  chunk:
+    description: Get information about chunks

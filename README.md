@@ -2,23 +2,65 @@
 WIP modern Minecraft world management solution aimed at being simple to use but powerful when needed.
 
 # Dependencies
-Voyage requires the following to work:
+Voyage takes advantage of other plugins. Please consider adding the following to your server.
+
+Required:
 - [VexelCore 1.0.1 Snapshot](https://github.com/ItsMCB/VexelCore)
 
-Voyage does not require the following to work, but having them on the server will enable extra features:
+Not required, but enables extra feature:
 - Placeholder API
 
-# Void World
-Voyage comes with a built-in void world generator. 
+# Commands
+### World
+`/world info <world name>` - View information about world
+
+`/world options <world name> <option> <value>` - Configure world options
+
+Options and values:
+- `time <freeze/unfreeze>` - Changes daylight cycle
+- `fire <on/off>` - Changes fire spread
+
+### Entity
+`/entity select` - Select an entity
+
+`/entity tphere` - Teleport entity to your location.
+
+`/entity mount` - Mount onto entity
+
+`/entity remove` - Delete entity
+
+### Chunk
+`/chunk info` - View information about the current chunk you're standing in
+
+# Generators
+Voyage comes with multiple basic **built-in** generators.
+
 In `bukkit.yml`, add a `worlds` configuration section. 
 Then add a subsection with the world name and generator.
 
-Example:
+## Void
 ```yaml
 worlds:
   world:
     generator: Voyage:void
 ```
+
+## Superflat
+NOTE: The block generation height of the void world can be customized by adding `:<height as int>` to the end of the generator configuration section.
+
+```yaml
+worlds:
+  world:
+    generator: Voyage:superflat:-60
+```
+
+## Moon
+```yaml
+worlds:
+  world:
+    generator: Voyage:moon
+```
+
 
 # Placeholders
 `%voyage_version%` - Returns version of Voyage plugin
@@ -32,6 +74,12 @@ worlds:
 `%voyage_world_all_amount%` - Returns amount of world folders
 
 `%voyage_world_loaded_amount%` - Returns amount of loaded worlds
+
+`%voyage_chunk_is_slime_chunk%` - Returns player chunk slime chunk status
+
+`%voyage_chunk_x` - Returns player chunk X coordinate
+
+`%voyage_chunk_z` - Returns player chunk Z coordinate
 
 # Contributors
 Contributions are highly appreciated!

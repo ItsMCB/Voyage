@@ -49,6 +49,15 @@ public class PAPIExpansion extends PlaceholderExpansion {
         if (params.equalsIgnoreCase("world_loaded_amount")){
             return String.valueOf(WorldUtils.getAmountLoadedWorlds());
         }
+        if (params.equalsIgnoreCase("chunk_is_slime_chunk")){
+            return Boolean.toString(player.getChunk().isSlimeChunk());
+        }
+        if (params.equalsIgnoreCase("chunk_X")){
+            return Integer.toString(player.getChunk().getX());
+        }
+        if (params.equalsIgnoreCase("chunk_Z")){
+            return Integer.toString(player.getChunk().getZ());
+        }
         return null;
     }
 }
