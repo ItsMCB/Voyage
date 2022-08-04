@@ -24,8 +24,7 @@ repositories {
 dependencies {
     compileOnly 'io.papermc.paper:paper-api:1.19-R0.1-SNAPSHOT'
     compileOnly 'me.clip:placeholderapi:2.11.1'
-    compileOnly files('/home/martin/GitHub/VexelCore/bukkit/build/libs/bukkit-1.0.1-SNAPSHOT.jar')
-    compileOnly files('/home/martin/GitHub/VexelCore/common/build/libs/VexelCore-Common-1.0.1-SNAPSHOT.jar')
+    compileOnly files('/home/martin/GitHub/VexelCore/bukkit/build/libs/VexelCore-Bukkit-1.0.1-SNAPSHOT.jar')
 }
 
 def targetJavaVersion = 17

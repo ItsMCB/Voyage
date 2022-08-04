@@ -1,4 +1,4 @@
-package me.itsmcb.voyage.commands;
+package me.itsmcb.voyage.features.chunk;
 
 import me.itsmcb.vexelcore.bukkit.api.experience.AudioResponse;
 import me.itsmcb.vexelcore.bukkit.api.utils.Msg;
@@ -9,7 +9,6 @@ import org.bukkit.Chunk;
 import org.bukkit.ChunkSnapshot;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
@@ -18,16 +17,17 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Arrays;
 import java.util.HashMap;
 
-public class ChunkCMD implements CommandExecutor {
+public class ChunkCMD extends Command {
 
     private Voyage instance;
 
     public ChunkCMD(Voyage instance) {
+        super("chunk");
         this.instance = instance;
     }
 
     @Override
-    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
+    public boolean execute(@NotNull CommandSender sender, @NotNull String commandLabel, @NotNull String[] args) {
         if (!sender.hasPermission("voyage.admin")) {
             Msg.sendResponsive(AudioResponse.ERROR, sender, "&cOops! You lack permission to do this. To use, give yourself the following permission: voyage.admin");
             return true;

@@ -10,12 +10,3 @@ depend:
   - VexelCore
 softdepend:
   - PlaceholderAPI
-commands:
-  voyage:
-      description: Main voyage command
-  world:
-    description: Configure worlds
-  entity:
-    description: Move or copy entities in or across worlds
-  chunk:
-    description: Get information about chunks

@@ -1,4 +1,4 @@
-package me.itsmcb.voyage.commands;
+package me.itsmcb.voyage.features.world;
 
 import me.itsmcb.vexelcore.bukkit.api.experience.AudioResponse;
 import me.itsmcb.vexelcore.bukkit.api.utils.Msg;
@@ -10,21 +10,21 @@ import org.bukkit.GameRule;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
-public class WorldCMD implements CommandExecutor {
+public class WorldCMD extends Command {
 
     private Voyage instance;
 
     public WorldCMD(Voyage instance) {
+        super("world");
         this.instance = instance;
     }
 
     @Override
-    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
+    public boolean execute(@NotNull CommandSender sender, @NotNull String commandLabel, @NotNull String[] args) {
         if (!sender.hasPermission("voyage.admin")) {
             Msg.sendResponsive(AudioResponse.ERROR, sender, "&cOops! You lack permission to do this. To use, give yourself the following permission: voyage.admin");
             return true;
