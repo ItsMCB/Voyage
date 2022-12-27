@@ -1,0 +1,93 @@
+prefix: "&3&lVoyage &7» "
+result: "&3%1&7: &b%2"
+bar: "&7-═════════ &b&l%1 &7═════════-"
+error-permission: "&cYou lack permission for that command."
+error-player-only-command: "&cOnly players can execute that command."
+
+voyage:
+  header-title: "Voyage Help"
+
+world:
+  header-title: "World Info"
+  deletion-confirmation: "&cAre you sure? This action will delete the world &c&lFOREVER! &cRetype the command with --confirm at the end to confirm."
+  deletion-complete: "&aWorld has been successfully deleted."
+  deletion-error: "&cAn error occurred while deleting the world. Did the world not unload before being deleted?"
+  does-not-exist: "&cThat world can't be found. Is it loaded?"
+  creation-error-seed: "&cProvided seed is not valid."
+  creation-error-type: "&cProvided type is not valid."
+  creation-error-environment: "&cProvided environment is not valid."
+  creation-creating: "&7Creating world... This may take a moment!"
+  creation-success: "&aWorld has been created successfully!"
+  configure-border-success: "&aBorder has been set to %1"
+  kick:
+    success: "&aPlayers kicked successfully."
+    failure: "&cPlayers kicked unsuccessfully."
+  load:
+    success: "&aWorld loaded successfully."
+    failure: "&cWorld failed to load. Does a valid world folder with that exact name exist?"
+  list:
+    header-title: "World List"
+    entry-loaded: "&7- &a%1"
+    entry-unloaded: "&7- &c%1"
+    click-to-load: "&7Click to load world"
+    click-to-teleport: "&7Click to teleport to world spawn"
+  generators:
+    header: "&7========== &6 World Generators &7 =========="
+    entry: "&7- &a%1 &7by &3%2"
+  info:
+    name: "Name"
+    environment: "Environment"
+    generator: "Generator"
+    difficulty: "Difficulty"
+    loaded-chunks: "Loaded Chunks"
+    total-chunks: "Total Chunks"
+    total-entities: "Total Entities"
+    total-tile-entities: "Tile Entities"
+    players: "Players"
+    time: "Time"
+    border-size: "Border Size"
+  help:
+    about: "&bManage, create, and delete worlds."
+    header-title: "World Command Help"
+    create:
+      syntax: "/world create <world name> --seed <seed> --type <type> --generator <generator> --environment <environment>"
+      description: "Creates new world with set parameters"
+    delete:
+      syntax: "/world delete <world name> [--confirm]"
+      description: "Permanently delete world data."
+    info:
+      syntax: "/world info <world name>"
+      description: "View information about a world."
+    import:
+      syntax: "/world import <world name>"
+      description: "Import a world."
+    load:
+      syntax: "/world load <world name>"
+      description: "Load a world"
+    teleport:
+      syntax: "/world teleport <world name>"
+      description: "Teleport to the world's spawn point."
+    border:
+      syntax: "/world border <world name> <number>"
+      description: "Sets the world border"
+    list:
+      syntax: "/world list"
+      description: "View a list of worlds to manage."
+
+chunk:
+  header-title: "Chunk Info"
+  help:
+    about: "&bView chunk information."
+  general:
+    location: "Location ( World @ X;Z)"
+    entities: "Entities"
+    slime: "Slime Spawn"
+  entity:
+    header-title: "Chunk Entity Info"
+  material:
+    header-title: "Chunk Material Info"
+
+entity:
+  help:
+    about: "&bManage entities."
+    header-title: "Entity Command Help"

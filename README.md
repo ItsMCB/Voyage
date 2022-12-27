@@ -1,5 +1,5 @@
 # Voyage
-WIP modern Minecraft world management solution aimed at being simple to use but powerful when needed.
+The Minecraft world management solution that's simple to use but powerful when needed.
 
 # Dependencies
 Voyage takes advantage of other plugins. Please consider adding the following to your server.
@@ -8,10 +8,23 @@ Required:
 - [VexelCore 1.0.1 Snapshot](https://github.com/ItsMCB/VexelCore)
 
 Not required, but enables extra feature:
-- Placeholder API
+- Placeholder API (Placeholder Support)
 
 # Commands
 ### World
+
+## Creation Flags
+`--environment`:
+- NORMAL
+- NETHER
+- THE_END
+
+`--type`:
+- DEFAULT
+- FLAT
+- LARGEBIOMES
+- AMPLIFIED
+
 `/world info <world name>` - View information about world
 
 `/world options <world name> <option> <value>` - Configure world options

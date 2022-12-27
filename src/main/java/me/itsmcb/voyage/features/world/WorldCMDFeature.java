@@ -6,7 +6,7 @@ import me.itsmcb.voyage.Voyage;
 public class WorldCMDFeature extends BukkitFeature {
 
     public WorldCMDFeature(Voyage instance) {
-        super("World CMD", "World management", null, instance);
+        super("World CMD", "World management tools", null, instance);
         registerCommand(new WorldCMD(instance));
     }
 }

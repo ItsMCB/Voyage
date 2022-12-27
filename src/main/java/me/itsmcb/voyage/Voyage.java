@@ -1,9 +1,10 @@
 package me.itsmcb.voyage;
 
 import me.itsmcb.vexelcore.bukkit.api.managers.BukkitFeatureManager;
+import me.itsmcb.vexelcore.bukkit.api.managers.LocalizationManager;
 import me.itsmcb.vexelcore.bukkit.api.utils.HookUtils;
-import me.itsmcb.voyage.features.chunk.ChunkCMDFeature;
-import me.itsmcb.voyage.features.entity.EntityCMDFeature;
+import me.itsmcb.voyage.features.chunk.ChunkFeat;
+import me.itsmcb.voyage.features.entity.EntityFeat;
 import me.itsmcb.voyage.features.voyage.VoyageCMDFeature;
 import me.itsmcb.voyage.features.world.WorldCMDFeature;
 import me.itsmcb.voyage.hooks.PAPIExpansion;
@@ -17,48 +18,41 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.UUID;
 
 public final class Voyage extends JavaPlugin {
 
     private Voyage instance;
-    private boolean enableDebug;
+    private LocalizationManager localizationManager;
     private BukkitFeatureManager featureManager;
-
-    public Voyage getInstance() {
-        return instance;
+    public LocalizationManager getLocalizationManager() {
+        return localizationManager;
     }
-
-    public boolean getEnableDebug() {
-        return enableDebug;
-    }
-
-    public HashMap<UUID, UUID> selectedEntities = new HashMap<>();
 
     @Override
     public void onEnable() {
         this.instance = this;
+
+        // Load configurations and options
+        // todo hook into future localization plugin to get default server language
+        this.localizationManager = new LocalizationManager(this, "en_US");
+        localizationManager.register("en_US");
+
+        // Register features
         this.featureManager = new BukkitFeatureManager();
-        featureManager.register(new ChunkCMDFeature(instance));
-        featureManager.register(new EntityCMDFeature(instance));
+        featureManager.register(new ChunkFeat(instance));
+        featureManager.register(new EntityFeat(instance));
         featureManager.register(new WorldCMDFeature(instance));
         featureManager.register(new VoyageCMDFeature(instance));
         featureManager.reload();
-        /*
-        // Load config
-        saveDefaultConfig();
-        // Check if debug should be enabled
-        this.enableDebug = getConfig().getBoolean("enable_debug");
-         */
 
-        // Using scheduler to delay running the hooks until the server (i.e. plugins that will be hooked into) has finished loading
+        // Hook into plugins after all have loaded
         getServer().getScheduler().scheduleSyncDelayedTask(this, this::registerPluginHooks);
     }
 
     @Override
     public @Nullable ChunkGenerator getDefaultWorldGenerator(@NotNull String worldName, @Nullable String id) {
         if (id != null) {
+
             System.out.println("Loading \""+worldName+"\" with generator \""+id+"\"");
             if (id.equalsIgnoreCase("void")) {
                 return new VoidGenerator();
@@ -82,8 +76,6 @@ public final class Voyage extends JavaPlugin {
     private void registerPluginHooks() {
         if (HookUtils.pluginIsLoaded("PlaceholderAPI")) {
             new PAPIExpansion(instance).register();
-        } else {
-            System.out.println("Unable to hook into PlaceholderAPI");
         }
     }
 }

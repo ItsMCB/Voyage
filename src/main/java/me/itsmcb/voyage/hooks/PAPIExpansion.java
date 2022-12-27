@@ -47,7 +47,7 @@ public class PAPIExpansion extends PlaceholderExpansion {
             return String.valueOf(WorldUtils.getAmountAllWorlds());
         }
         if (params.equalsIgnoreCase("world_loaded_amount")){
-            return String.valueOf(WorldUtils.getAmountLoadedWorlds());
+            return String.valueOf(WorldUtils.getLoadedWorlds().size());
         }
         if (params.equalsIgnoreCase("chunk_is_slime_chunk")){
             return Boolean.toString(player.getChunk().isSlimeChunk());
@@ -58,6 +58,7 @@ public class PAPIExpansion extends PlaceholderExpansion {
         if (params.equalsIgnoreCase("chunk_Z")){
             return Integer.toString(player.getChunk().getZ());
         }
+        // TODO "entity_selected" bool and "entity_selected_type" string
         return null;
     }
 }
