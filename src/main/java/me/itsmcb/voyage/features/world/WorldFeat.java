@@ -3,10 +3,10 @@ package me.itsmcb.voyage.features.world;
 import me.itsmcb.vexelcore.bukkit.BukkitFeature;
 import me.itsmcb.voyage.Voyage;
 
-public class WorldCMDFeature extends BukkitFeature {
+public class WorldFeat extends BukkitFeature {
 
-    public WorldCMDFeature(Voyage instance) {
+    public WorldFeat(Voyage instance) {
         super("World CMD", "World management tools", null, instance);
-        registerCommand(new WorldCMD(instance));
+        registerCommand(new WorldCmd(instance));
     }
 }

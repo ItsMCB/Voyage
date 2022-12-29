@@ -2,8 +2,13 @@
 # Voyage Config v${version}
 #
 
+# Do not edit this!
+file-version: 1
+
 # Will log debug information to the console. Meant for developers or bug hunters.
 enable_debug: true
 
 # If true, Voyage will take control of handling worlds.
 handle_worlds: true
+
+# // TODO have this file actually do something

@@ -20,6 +20,7 @@ public class EntityCmd extends CustomCommand {
         this.feature = feature;
         registerSubCommand(new SelectCmd(instance, feature));
         registerSubCommand(new NearCmd(instance));
+        registerStipulatedSubCommand(new LookCmd(null));
         registerStipulatedSubCommand(new WearHandCmd(null));
         registerStipulatedSubCommand(new TpToCmd(null));
         registerStipulatedSubCommand(new TpHereCmd(null));

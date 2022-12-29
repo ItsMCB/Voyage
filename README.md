@@ -94,6 +94,10 @@ worlds:
 
 `%voyage_chunk_z` - Returns player chunk Z coordinate
 
+# Datapacks
+In vanilla Minecraft, datapacks are put into the desired world's datapacks folder.
+On Bukkit-based Minecraft servers, they are put into the main world's folder and affect the whole server.
+
 # Contributors
 Contributions are highly appreciated!
 
