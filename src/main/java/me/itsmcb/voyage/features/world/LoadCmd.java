@@ -16,6 +16,7 @@ public class LoadCmd extends CustomCommand {
 
     public LoadCmd(Voyage instance) {
         super("load", "Load world so that players can join it","voyage.admin");
+        addParameter("[world]","The name of the world to teleport to.");
         this.instance = instance;
     }
 

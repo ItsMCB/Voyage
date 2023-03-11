@@ -14,6 +14,7 @@ public class TeleportCmd extends CustomCommand {
 
     public TeleportCmd(Voyage instance) {
         super("teleport", "Teleport to a world","voyage.admin");
+        addParameter("[world]","The name of the world to teleport to.");
         this.instance = instance;
     }
 

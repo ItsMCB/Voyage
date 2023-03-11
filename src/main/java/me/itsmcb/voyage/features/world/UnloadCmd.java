@@ -16,6 +16,7 @@ public class UnloadCmd extends CustomCommand {
 
     public UnloadCmd(Voyage instance) {
         super("unload", "Unload world so players can't join","voyage.admin");
+        addParameter("[world]","The name of the world to teleport to.");
         this.instance = instance;
     }
 

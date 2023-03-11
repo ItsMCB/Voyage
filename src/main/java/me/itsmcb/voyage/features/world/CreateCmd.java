@@ -19,6 +19,10 @@ public class CreateCmd extends CustomCommand {
 
     public CreateCmd(Voyage instance) {
         super("create", "Create worlds", "voyage.admin");
+        addParameter("[--seed]","World seed (ex. 12345)");
+        addParameter("[--type]","World type (DEFAULT, FLAT, LARGEBIOMES, AMPLIFIED)");
+        addParameter("[--environment]", "World environment (NORMAL, NETHER, THE_END)");
+        addParameter("[--generator]","World generator (ex. Voyage:void)");
         this.instance = instance;
     }
 

@@ -55,8 +55,8 @@ public class VoyageAPI {
         ArrayList<String> worldNames = new ArrayList<>();
         for (File file : Objects.requireNonNull(Bukkit.getWorldContainer().listFiles())) {
             if (file.isDirectory()) {
-                File datFile = new File(file.getPath()+File.separator+"uid.dat");
-                if (datFile.exists()) {
+                File regionFolder = new File(file.getPath()+File.separator+"region");
+                if (regionFolder.exists()) {
                     worldNames.add(file.getName());
                 }
             }

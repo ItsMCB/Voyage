@@ -1,11 +1,11 @@
 package me.itsmcb.voyage;
 
-import libs.dev.dejvokep.boostedyaml.serialization.YamlSerializer;
-import libs.dev.dejvokep.boostedyaml.spigot.SpigotSerializer;
 import me.itsmcb.vexelcore.bukkit.api.managers.BukkitFeatureManager;
 import me.itsmcb.vexelcore.bukkit.api.managers.LocalizationManager;
 import me.itsmcb.vexelcore.bukkit.api.utils.HookUtils;
 import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
+import me.itsmcb.voyage.api.VoyageWorld;
+import me.itsmcb.voyage.api.VoyageWorldManager;
 import me.itsmcb.voyage.features.chunk.ChunkFeat;
 import me.itsmcb.voyage.features.entity.EntityFeat;
 import me.itsmcb.voyage.features.voyage.VoyageFeat;
@@ -14,6 +14,7 @@ import me.itsmcb.voyage.hooks.PAPIExpansion;
 import me.itsmcb.voyage.worldgen.generators.MoonGenerator;
 import me.itsmcb.voyage.worldgen.generators.SuperflatGenerator;
 import me.itsmcb.voyage.worldgen.generators.VoidGenerator;
+import org.bukkit.configuration.serialization.ConfigurationSerialization;
 import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
@@ -28,12 +29,17 @@ public final class Voyage extends JavaPlugin {
     private LocalizationManager localizationManager;
     private BoostedConfig mainConfig;
     private BukkitFeatureManager featureManager;
+    private VoyageWorldManager worldManager;
+
     public LocalizationManager getLocalizationManager() {
         return localizationManager;
     }
-
     public BoostedConfig getMainConfig() {
         return mainConfig;
+    }
+
+    public VoyageWorldManager getWorldManager() {
+        return worldManager;
     }
 
     @Override
@@ -46,8 +52,14 @@ public final class Voyage extends JavaPlugin {
         localizationManager.register("en_US");
 
         // Config
-        YamlSerializer spigotSerializer = new SpigotSerializer();
-        mainConfig = new BoostedConfig(getDataFolder(),"config", getResource("config.yml"), spigotSerializer);
+        //YamlSerializer spigotSerializer = new SpigotSerializer();
+        //mainConfig = new BoostedConfig(getDataFolder(),"config", getResource("config.yml"), spigotSerializer);
+
+        // World configs
+        ConfigurationSerialization.registerClass(VoyageWorld.class, "VoyageWorld");
+        this.worldManager = new VoyageWorldManager(getDataFolder());
+        //worldManager.test("world",getDataFolder());
+        //worldManager.loadDesiredWorlds();
 
         // Register features
         this.featureManager = new BukkitFeatureManager();

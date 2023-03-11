@@ -1,16 +1,27 @@
 package me.itsmcb.voyage.api;
 
+import libs.dev.dejvokep.boostedyaml.spigot.SpigotSerializer;
+import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.WorldType;
+import org.bukkit.configuration.serialization.ConfigurationSerializable;
+import org.bukkit.configuration.serialization.SerializableAs;
+import org.jetbrains.annotations.NotNull;
 
-public class VoyageWorld {
+import java.io.File;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@SerializableAs("VoyageWorld")
+public class VoyageWorld implements ConfigurationSerializable {
 
     private String name;
     private WorldCreator worldCreator;
-
     private World world = null;
+
+    private BoostedConfig config;
 
     public VoyageWorld(String name) {
         this.name = name;
@@ -90,5 +101,27 @@ public class VoyageWorld {
     public boolean isLoaded() {
         World worldLookup = Bukkit.getWorld(name);
         return (worldLookup != null);
+    }
+
+    @Override
+    public @NotNull Map<String, Object> serialize() {
+        LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+        map.put("name",name);
+        map.put("keep-loaded",true);
+        return map;
+    }
+
+    public void createConfig(File saveLocation) {
+        this.config = new BoostedConfig(saveLocation,"worlds"+ File.separator + name, null, new SpigotSerializer());
+        config.get().set("data",serialize());
+        config.save();
+    }
+
+    public void setConfig(BoostedConfig config) {
+        this.config = config;
+    }
+
+    public BoostedConfig getConfig() {
+        return config;
     }
 }
