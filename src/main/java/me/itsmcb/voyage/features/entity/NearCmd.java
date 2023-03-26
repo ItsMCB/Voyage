@@ -5,6 +5,7 @@ import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.common.api.command.CMDHelper;
 import me.itsmcb.voyage.Voyage;
 import net.kyori.adventure.text.event.ClickEvent;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
@@ -39,7 +40,7 @@ public class NearCmd extends CustomCommand {
     }
 
     @Override
-    public List<String> getCompletions() {
+    public List<String> getCompletions(CommandSender sender) {
         return List.of("10","20","30","40","50","60");
     }
 }

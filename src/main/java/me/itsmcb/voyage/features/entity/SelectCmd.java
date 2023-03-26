@@ -5,6 +5,7 @@ import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.common.api.command.CMDHelper;
 import me.itsmcb.voyage.Voyage;
 import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
@@ -48,7 +49,7 @@ public class SelectCmd extends CustomCommand {
     }
 
     @Override
-    public List<String> getCompletions() {
+    public List<String> getCompletions(CommandSender sender) {
         return List.of("target","uuid");
     }
 }

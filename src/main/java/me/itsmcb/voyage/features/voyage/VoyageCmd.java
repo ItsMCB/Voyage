@@ -8,6 +8,7 @@ import me.itsmcb.voyage.features.chunk.ChunkCmd;
 import me.itsmcb.voyage.features.entity.EntityCmd;
 import me.itsmcb.voyage.features.entity.EntityFeat;
 import me.itsmcb.voyage.features.world.WorldCmd;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
@@ -37,7 +38,7 @@ public class VoyageCmd extends CustomCommand {
     }
 
     @Override
-    public List<String> getAdditionalCompletions() {
+    public List<String> getAdditionalCompletions(CommandSender sender) {
         return List.of("reload");
     }
 }

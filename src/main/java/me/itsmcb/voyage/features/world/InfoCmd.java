@@ -7,6 +7,7 @@ import me.itsmcb.voyage.Voyage;
 import me.itsmcb.voyage.api.VoyageAPI;
 import me.itsmcb.voyage.api.VoyageWorld;
 import org.bukkit.World;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
@@ -46,7 +47,7 @@ public class InfoCmd extends CustomCommand {
     }
 
     @Override
-    public List<String> getAdditionalCompletions() {
+    public List<String> getAdditionalCompletions(CommandSender sender) {
         return VoyageAPI.allWorldFolderNames();
     }
 }
