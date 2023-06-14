@@ -33,38 +33,42 @@ public class VoyageWorld implements ConfigurationSerializable {
         this.world = world;
     }
 
-    public void setSeed(Long seed) {
+    public VoyageWorld setSeed(Long seed) {
         worldCreator.seed(seed);
+        return this;
     }
 
-    public void setWorldType(WorldType worldType) {
+    public VoyageWorld setWorldType(WorldType worldType) {
         worldCreator.type(worldType);
+        return this;
     }
 
-    public void setEnvironment(World.Environment environment) {
+    public VoyageWorld setEnvironment(World.Environment environment) {
         worldCreator.environment(environment);
+        return this;
     }
 
-    public void setGenerator(String input) {
+    public VoyageWorld setGenerator(String input) {
         // World types may be passed as a generator so Voyage will accommodate for that.
         if (input.equalsIgnoreCase("flat")) {
             setWorldType(WorldType.FLAT);
-            return;
+            return this;
         }
         if (input.equalsIgnoreCase("amplified")) {
             setWorldType(WorldType.AMPLIFIED);
-            return;
+            return this;
         }
         if (input.equalsIgnoreCase("largebiomes") || input.equalsIgnoreCase("large biomes")) {
             setWorldType(WorldType.LARGE_BIOMES);
-            return;
+            return this;
         }
         if (input.equalsIgnoreCase("normal")) {
             setWorldType(WorldType.NORMAL);
-            return;
+            return this;
         }
         worldCreator.generator(input);
         worldCreator.generatorSettings();
+        return this;
     }
 
     public boolean load() {

@@ -18,7 +18,7 @@ public class VoyageCmd extends CustomCommand {
     private Voyage instance;
 
     public VoyageCmd(Voyage instance) {
-        super("voyage", "All of Voyage", "voyage.admin");
+        super("voyage", "All of Voyage, a modern world management solution.", "voyage.admin");
         this.instance = instance;
         registerSubCommand(new ChunkCmd(instance));
         registerSubCommand(new EntityCmd(instance, new EntityFeat(instance)));

@@ -2,7 +2,7 @@ package me.itsmcb.voyage;
 
 import me.itsmcb.vexelcore.bukkit.api.managers.BukkitFeatureManager;
 import me.itsmcb.vexelcore.bukkit.api.managers.LocalizationManager;
-import me.itsmcb.vexelcore.bukkit.api.utils.HookUtils;
+import me.itsmcb.vexelcore.bukkit.api.utils.PluginUtils;
 import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
 import me.itsmcb.voyage.api.VoyageWorld;
 import me.itsmcb.voyage.api.VoyageWorldManager;
@@ -98,7 +98,7 @@ public final class Voyage extends JavaPlugin {
     }
 
     private void registerPluginHooks() {
-        if (HookUtils.pluginIsLoaded("PlaceholderAPI")) {
+        if (PluginUtils.pluginIsLoaded("PlaceholderAPI")) {
             new PAPIExpansion(instance).register();
         }
     }
