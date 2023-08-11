@@ -15,9 +15,9 @@ public class VoyageWorldManager {
     }
 
     // Test...for deletion when done
-    public void test(String name, File file) {
+    public void test(String name) {
         VoyageWorld world = new VoyageWorld(name);
-        world.createConfig(file);
+        world.serializeAndSaveConfig();
     }
     
     public void loadDesiredWorlds() {

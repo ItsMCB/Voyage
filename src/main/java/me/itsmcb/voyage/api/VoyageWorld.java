@@ -1,5 +1,6 @@
 package me.itsmcb.voyage.api;
 
+import libs.dev.dejvokep.boostedyaml.route.Route;
 import libs.dev.dejvokep.boostedyaml.spigot.SpigotSerializer;
 import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
 import org.bukkit.Bukkit;
@@ -19,8 +20,9 @@ public class VoyageWorld implements ConfigurationSerializable {
 
     private String name;
     private WorldCreator worldCreator;
+    private String generator;
     private World world = null;
-
+    private boolean loadOnStart = false;
     private BoostedConfig config;
 
     public VoyageWorld(String name) {
@@ -49,6 +51,11 @@ public class VoyageWorld implements ConfigurationSerializable {
     }
 
     public VoyageWorld setGenerator(String input) {
+        this.generator = input;
+        System.out.println("Gen input: "+generator);
+        if (input == null) {
+            return this;
+        }
         // World types may be passed as a generator so Voyage will accommodate for that.
         if (input.equalsIgnoreCase("flat")) {
             setWorldType(WorldType.FLAT);
@@ -66,13 +73,20 @@ public class VoyageWorld implements ConfigurationSerializable {
             setWorldType(WorldType.NORMAL);
             return this;
         }
-        worldCreator.generator(input);
+        worldCreator.generator(generator);
         worldCreator.generatorSettings();
         return this;
     }
 
+    public void setLoadOnStart(boolean loadOnStart) {
+        this.loadOnStart = loadOnStart;
+    }
+
     public boolean load() {
         if (world == null) {
+            deserialize(getConfig().get().getStringRouteMappedValues(true));
+            System.out.println("LOAD ABOUT TO SAVE BTW");
+            serializeAndSaveConfig();
             world = worldCreator.createWorld();
         }
         return (world != null);
@@ -90,7 +104,7 @@ public class VoyageWorld implements ConfigurationSerializable {
         world.getPlayers().forEach(player -> {
             VoyageAPI.evacuate(player, world.getName());
         });
-        return (world.getPlayers().size() == 0);
+        return (world.getPlayers().isEmpty());
     }
 
     public World getWorld() {
@@ -111,21 +125,50 @@ public class VoyageWorld implements ConfigurationSerializable {
     public @NotNull Map<String, Object> serialize() {
         LinkedHashMap<String, Object> map = new LinkedHashMap<>();
         map.put("name",name);
-        map.put("keep-loaded",true);
+        map.put("load-on-start",loadOnStart);
+        map.put("generator",generator);
+        System.out.println("Serialize gen: "+generator);
         return map;
     }
 
-    public void createConfig(File saveLocation) {
-        this.config = new BoostedConfig(saveLocation,"worlds"+ File.separator + name, null, new SpigotSerializer());
-        config.get().set("data",serialize());
-        config.save();
-    }
-
-    public void setConfig(BoostedConfig config) {
-        this.config = config;
+    public VoyageWorld deserialize(Map<String, Object> map) {
+        // Check if there is anything to load.
+        System.out.println("deserialize moment");
+        map.forEach((k,v) -> {
+            System.out.println("KEY: "+k.toString()+" | V: "+v);
+        });
+        if (map.size() <= 1) {
+            System.out.println("Map size L");
+            return this;
+        }
+        System.out.println("DESERIALIZE START! - "+(String) map.get("name"));
+        if (map.containsKey("name")) {
+            this.name = (String) map.get("name");
+        }
+        if (map.containsKey("keep-loaded")) {
+            this.loadOnStart = (boolean) map.get("load-on-start");
+        }
+        if (map.containsKey("generator")) {
+            this.setGenerator((String) map.get("generator"));
+            System.out.println("OOOOOOOOOOF lol");
+        }
+        return this;
     }
 
     public BoostedConfig getConfig() {
+        if (config == null) {
+            this.config = new BoostedConfig(new File(Bukkit.getWorldContainer()+File.separator+name),"voyage", null, new SpigotSerializer());
+        }
         return config;
+    }
+
+    public void serializeAndSaveConfig() {
+        System.out.println("Saving");
+        getConfig();
+        serialize().forEach((s,o) -> {
+            config.get().set(Route.from(s),o);
+        });
+        config.save();
+        System.out.println("Save done btwz");
     }
 }

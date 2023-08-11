@@ -1,8 +1,10 @@
 package me.itsmcb.voyage.features.world;
 
 import me.itsmcb.vexelcore.bukkit.api.command.CustomCommand;
+import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.bukkit.api.utils.Msg;
 import me.itsmcb.vexelcore.common.api.command.CMDHelper;
+import me.itsmcb.vexelcore.common.api.utils.FileUtils;
 import me.itsmcb.voyage.Voyage;
 import me.itsmcb.voyage.api.VoyageAPI;
 import me.itsmcb.voyage.api.VoyageWorld;
@@ -10,6 +12,7 @@ import org.bukkit.World;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.text.DecimalFormat;
 import java.util.List;
 
 public class InfoCmd extends CustomCommand {
@@ -44,6 +47,8 @@ public class InfoCmd extends CustomCommand {
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.time"), world.getTime()+""),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.border-size"), world.getWorldBorder().getSize()+"")
         );
+        // todo data folder + world
+        new BukkitMsgBuilder("&3Usage: &b"+ FileUtils.getRecursiveFileSizeFormatted(voyageWorld.getWorld().getWorldFolder())).send(player);
     }
 
     @Override

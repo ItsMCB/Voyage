@@ -42,9 +42,16 @@ public final class Voyage extends JavaPlugin {
         return worldManager;
     }
 
+    private ArrayList<String> worldsToBeLoadedWithVoyage = new ArrayList<>();
+
+    public ArrayList<String> getWorldsToBeLoadedWithVoyage() {
+        return worldsToBeLoadedWithVoyage;
+    }
+
     @Override
     public void onEnable() {
         this.instance = this;
+        // TODO worlds with "keep-loaded" should be loaded when the server starts
 
         // Load configurations and options
         // todo hook into future localization plugin to get default server language
