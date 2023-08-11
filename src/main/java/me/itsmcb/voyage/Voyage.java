@@ -42,12 +42,6 @@ public final class Voyage extends JavaPlugin {
         return worldManager;
     }
 
-    private ArrayList<String> worldsToBeLoadedWithVoyage = new ArrayList<>();
-
-    public ArrayList<String> getWorldsToBeLoadedWithVoyage() {
-        return worldsToBeLoadedWithVoyage;
-    }
-
     @Override
     public void onEnable() {
         this.instance = this;
@@ -65,8 +59,6 @@ public final class Voyage extends JavaPlugin {
         // World configs
         ConfigurationSerialization.registerClass(VoyageWorld.class, "VoyageWorld");
         this.worldManager = new VoyageWorldManager(getDataFolder());
-        //worldManager.test("world",getDataFolder());
-        //worldManager.loadDesiredWorlds();
 
         // Register features
         this.featureManager = new BukkitFeatureManager();
