@@ -3,10 +3,7 @@ package me.itsmcb.voyage.api;
 import libs.dev.dejvokep.boostedyaml.route.Route;
 import libs.dev.dejvokep.boostedyaml.spigot.SpigotSerializer;
 import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
-import org.bukkit.Bukkit;
-import org.bukkit.World;
-import org.bukkit.WorldCreator;
-import org.bukkit.WorldType;
+import org.bukkit.*;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
 import org.bukkit.configuration.serialization.SerializableAs;
 import org.jetbrains.annotations.NotNull;
@@ -35,6 +32,14 @@ public class VoyageWorld implements ConfigurationSerializable {
         this.world = world;
     }
 
+    public VoyageWorld setName(String name) {
+        this.name = name;
+        this.worldCreator = new WorldCreator(name).copy(worldCreator);
+        return this;
+    }
+
+    // TODO return world creator instead of having proxy methods
+
     public VoyageWorld setSeed(Long seed) {
         worldCreator.seed(seed);
         return this;
@@ -47,6 +52,16 @@ public class VoyageWorld implements ConfigurationSerializable {
 
     public VoyageWorld setEnvironment(World.Environment environment) {
         worldCreator.environment(environment);
+        return this;
+    }
+
+    public VoyageWorld setGeneratorSettings(String settings) {
+        worldCreator.generatorSettings(settings);
+        return this;
+    }
+
+    public VoyageWorld setDifficulty(Difficulty difficulty) {
+        getWorld().setDifficulty(difficulty);
         return this;
     }
 
@@ -108,7 +123,9 @@ public class VoyageWorld implements ConfigurationSerializable {
     }
 
     public World getWorld() {
-        load();
+        if (!(isLoaded())) {
+            load();
+        }
         return world;
     }
 
