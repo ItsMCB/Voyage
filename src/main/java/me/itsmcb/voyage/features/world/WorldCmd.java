@@ -8,12 +8,13 @@ public class WorldCmd extends CustomCommand {
     private Voyage instance;
 
     public WorldCmd(Voyage instance) {
-        super("world","Handle worlds","voyage.admin");
+        super("world","Manage your worlds","voyage.admin");
         this.instance = instance;
         registerSubCommand(new CreateCmd(instance));
         registerSubCommand(new ListCmd(instance));
         registerSubCommand(new LoadCmd(instance));
         registerSubCommand(new UnloadCmd(instance));
+        registerSubCommand(new CopySCmd(instance));
         registerSubCommand(new DeleteCmd(instance));
         registerSubCommand(new TeleportCmd(instance));
         registerSubCommand(new InfoCmd(instance));

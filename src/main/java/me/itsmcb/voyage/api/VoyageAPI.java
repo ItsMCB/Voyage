@@ -1,5 +1,6 @@
 package me.itsmcb.voyage.api;
 
+import me.itsmcb.vexelcore.common.api.utils.FileUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
@@ -56,7 +57,8 @@ public class VoyageAPI {
         for (File file : Objects.requireNonNull(Bukkit.getWorldContainer().listFiles())) {
             if (file.isDirectory()) {
                 File regionFolder = new File(file.getPath()+File.separator+"region");
-                if (regionFolder.exists()) {
+                File uidDat = new File(file.getPath()+File.separator+"uid.dat");
+                if (regionFolder.exists() || uidDat.exists()) {
                     worldNames.add(file.getName());
                 }
             }

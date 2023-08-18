@@ -93,6 +93,10 @@ public class VoyageWorld implements ConfigurationSerializable {
         return this;
     }
 
+    public String getGenerator() {
+        return generator;
+    }
+
     public void setLoadOnStart(boolean loadOnStart) {
         this.loadOnStart = loadOnStart;
     }
@@ -100,8 +104,10 @@ public class VoyageWorld implements ConfigurationSerializable {
     public boolean load() {
         if (world == null) {
             deserialize(getConfig().get().getStringRouteMappedValues(true));
-            System.out.println("LOAD ABOUT TO SAVE BTW");
             serializeAndSaveConfig();
+        }
+        // If world isn't loaded
+        if (world == null || Bukkit.getWorld(getName()) == null) {
             world = worldCreator.createWorld();
         }
         return (world != null);
@@ -126,7 +132,15 @@ public class VoyageWorld implements ConfigurationSerializable {
         if (!(isLoaded())) {
             load();
         }
+        // Loaded previously
+        if (world == null) {
+            world = Bukkit.getWorld(getName());
+        }
         return world;
+    }
+
+    public File getFolder() {
+        return new File(Bukkit.getWorldContainer()+File.separator+getName());
     }
 
     public String getName() {

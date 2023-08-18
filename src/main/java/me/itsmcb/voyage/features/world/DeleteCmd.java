@@ -18,7 +18,7 @@ public class DeleteCmd extends CustomCommand {
     private Voyage instance;
 
     public DeleteCmd(Voyage instance) {
-        super("delete", "Delete world folder and files","voyage.admin");
+        super("delete", "Delete world folder and file data","voyage.admin");
         this.instance = instance;
     }
 
@@ -36,7 +36,7 @@ public class DeleteCmd extends CustomCommand {
         }
         VoyageWorld voyageWorld = new VoyageWorld(args[0]);
         // Load temporarily to get folder
-        File worldFolder = voyageWorld.getWorld().getWorldFolder();
+        File worldFolder = voyageWorld.getFolder();
         voyageWorld.unload();
         // delete files
         if (!FileUtils.deleteFile(worldFolder)) {
