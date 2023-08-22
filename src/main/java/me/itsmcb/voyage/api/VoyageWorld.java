@@ -2,7 +2,9 @@ package me.itsmcb.voyage.api;
 
 import libs.dev.dejvokep.boostedyaml.route.Route;
 import libs.dev.dejvokep.boostedyaml.spigot.SpigotSerializer;
+import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
+import me.itsmcb.vexelcore.common.api.utils.FileUtils;
 import org.bukkit.*;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
 import org.bukkit.configuration.serialization.SerializableAs;
@@ -118,6 +120,13 @@ public class VoyageWorld implements ConfigurationSerializable {
             return false;
         }
         return Bukkit.unloadWorld(world,true);
+    }
+
+    public boolean delete() {
+        if (unload()) {
+            return FileUtils.deleteFile(getFolder());
+        }
+        return false;
     }
 
     public boolean kickAll() {
