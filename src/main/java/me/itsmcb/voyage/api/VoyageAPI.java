@@ -43,8 +43,13 @@ public class VoyageAPI {
         return World.Environment.NORMAL;
     }
 
+    @Deprecated
     public static void evacuate(Player player, String from) {
-        World evacuationWorld = Bukkit.getWorlds().stream().filter(world -> !(world.getName().equalsIgnoreCase(from))).findFirst().orElse(null);
+        evacuate(player);
+    }
+
+    public static void evacuate(Player player) {
+        World evacuationWorld = Bukkit.getWorlds().stream().filter(world -> world != player.getWorld()).findFirst().orElse(null);
         if (evacuationWorld == null) {
             player.kick();
             return;
