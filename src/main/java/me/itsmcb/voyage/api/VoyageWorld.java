@@ -167,30 +167,28 @@ public class VoyageWorld implements ConfigurationSerializable {
         map.put("name",name);
         map.put("load-on-start",loadOnStart);
         map.put("generator",generator);
-        System.out.println("Serialize gen: "+generator);
         return map;
     }
 
     public VoyageWorld deserialize(Map<String, Object> map) {
         // Check if there is anything to load.
-        System.out.println("deserialize moment");
         map.forEach((k,v) -> {
             System.out.println("KEY: "+k.toString()+" | V: "+v);
         });
         if (map.size() <= 1) {
-            System.out.println("Map size L");
+            System.out.println("Nothing to deserialize for this Voyage World!");
             return this;
         }
-        System.out.println("DESERIALIZE START! - "+(String) map.get("name"));
         if (map.containsKey("name")) {
-            this.name = (String) map.get("name");
+            if (this.name == null) {
+                this.name = (String) map.get("name");
+            }
         }
         if (map.containsKey("keep-loaded")) {
             this.loadOnStart = (boolean) map.get("load-on-start");
         }
         if (map.containsKey("generator")) {
             this.setGenerator((String) map.get("generator"));
-            System.out.println("OOOOOOOOOOF lol");
         }
         return this;
     }
@@ -203,12 +201,11 @@ public class VoyageWorld implements ConfigurationSerializable {
     }
 
     public void serializeAndSaveConfig() {
-        System.out.println("Saving");
         getConfig();
         serialize().forEach((s,o) -> {
             config.get().set(Route.from(s),o);
         });
         config.save();
-        System.out.println("Save done btwz");
+        System.out.println("Config saved for "+name);
     }
 }

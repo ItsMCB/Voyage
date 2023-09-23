@@ -38,7 +38,7 @@ public class EntityCmd extends CustomCommand {
         // Validate selected entity
         Entity entity;
         if (!feature.validateSelected(player)) {
-            new BukkitMsgBuilder("Entity not valid. Please reselect.").send(player);
+            new BukkitMsgBuilder("&cEntity couldn't be found! Did it die? Please reselect.").send(player);
             return;
         }
         entity = feature.getSelected(player);
