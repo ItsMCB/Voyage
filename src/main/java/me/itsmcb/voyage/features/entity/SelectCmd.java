@@ -33,8 +33,8 @@ public class SelectCmd extends CustomCommand {
                 new BukkitMsgBuilder("&cInvalid target!").send(player);
                 return;
             }
-            feature.select(player, entity);
-            // TODO Send done message
+            select(entity,player);
+            return;
         }
         if (cmdHelper.isCalling("uuid")) {
             Entity entity = Bukkit.getEntity(UUID.fromString(args[1]));
@@ -43,9 +43,15 @@ public class SelectCmd extends CustomCommand {
                 new BukkitMsgBuilder("&cInvalid target!").send(player);
                 return;
             }
-            feature.select(player, entity);
-            // TODO Send done message
+            select(entity,player);
+            return;
         }
+        help(player);
+    }
+
+    private void select(Entity entity, Player player) {
+        feature.select(player, entity);
+        new BukkitMsgBuilder("&aSelected "+entity.getType().getKey().getKey()).send(player);
     }
 
     @Override

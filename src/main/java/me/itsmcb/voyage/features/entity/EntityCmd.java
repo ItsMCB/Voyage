@@ -3,6 +3,7 @@ package me.itsmcb.voyage.features.entity;
 import me.itsmcb.vexelcore.bukkit.api.command.CustomCommand;
 import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.common.api.command.CMDHelper;
+import me.itsmcb.vexelcore.common.api.utils.ArgUtils;
 import me.itsmcb.voyage.Voyage;
 import net.kyori.adventure.text.TextComponent;
 import org.bukkit.command.CommandSender;
@@ -25,6 +26,7 @@ public class EntityCmd extends CustomCommand {
         registerStipulatedSubCommand(new TpToCmd(null));
         registerStipulatedSubCommand(new TpHereCmd(null));
         registerStipulatedSubCommand(new MountCmd(null));
+        registerStipulatedSubCommand(new AwarenessCmd(null));
         registerStipulatedSubCommand(new RemoveCmd(instance, null));
     }
 
@@ -64,6 +66,11 @@ public class EntityCmd extends CustomCommand {
         }
         if (cmdHelper.isCalling("remove")) {
             new RemoveCmd(instance,entity).executeAsPlayer(player,args);
+            return;
+        }
+        String[] shiftedArgs = ArgUtils.shift(args);
+        if (cmdHelper.isCalling("awareness")) {
+            new AwarenessCmd(entity).executeAsPlayer(player,shiftedArgs);
             return;
         }
         player.sendMessage(help());
