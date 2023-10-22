@@ -43,6 +43,7 @@ public class InfoCmd extends CustomCommand {
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.total-chunks"), world.getChunkCount()+""),
                 instance.getLocalizationManager().get("result",  instance.getLocalizationManager().get("world.info.total-entities"), world.getEntities().size()+""),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.total-tile-entities"), world.getTileEntityCount()+""),
+                instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.total-living-entities"), world.getLivingEntities()+""),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.players"), world.getPlayerCount()+""),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.time"), world.getTime()+""),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.border-size"), world.getWorldBorder().getSize()+"")

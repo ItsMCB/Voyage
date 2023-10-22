@@ -43,6 +43,7 @@ world:
     total-chunks: "Total Chunks"
     total-entities: "Total Entities"
     total-tile-entities: "Tile Entities"
+    total-living-entities: "Living Entities"
     players: "Players"
     time: "Time"
     border-size: "Border Size"
