@@ -30,12 +30,13 @@ public class VoyageWorld implements ConfigurationSerializable {
     }
 
     public VoyageWorld(World world) {
-        this.name = world.getName();
+        this(world.getName());
         this.world = world;
     }
 
     public VoyageWorld setName(String name) {
         this.name = name;
+        // Must recreate WorldCreator to set a new name
         this.worldCreator = new WorldCreator(name).copy(worldCreator);
         return this;
     }
@@ -91,7 +92,6 @@ public class VoyageWorld implements ConfigurationSerializable {
             return this;
         }
         worldCreator.generator(generator);
-        worldCreator.generatorSettings();
         return this;
     }
 
