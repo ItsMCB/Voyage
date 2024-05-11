@@ -1,5 +1,6 @@
 package me.itsmcb.voyage.api;
 
+import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.common.api.utils.FileUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
@@ -51,7 +52,7 @@ public class VoyageAPI {
     public static void evacuate(Player player) {
         World evacuationWorld = Bukkit.getWorlds().stream().filter(world -> world != player.getWorld()).findFirst().orElse(null);
         if (evacuationWorld == null) {
-            player.kick();
+            player.kick(new BukkitMsgBuilder("&cYou have been kicked because the only loaded world is being unloaded").get());
             return;
         }
         player.teleport(evacuationWorld.getSpawnLocation());
