@@ -58,6 +58,11 @@ public class VoyageWorld implements ConfigurationSerializable {
         return this;
     }
 
+    public VoyageWorld setGenerateStructrues(boolean choice) {
+        worldCreator.generateStructures(choice);
+        return this;
+    }
+
     public VoyageWorld setGeneratorSettings(String settings) {
         worldCreator.generatorSettings(settings);
         return this;
