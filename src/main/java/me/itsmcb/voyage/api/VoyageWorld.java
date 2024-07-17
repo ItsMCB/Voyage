@@ -200,7 +200,7 @@ public class VoyageWorld implements ConfigurationSerializable {
 
     public BoostedConfig getConfig() {
         if (config == null) {
-            this.config = new BoostedConfig(new File(Bukkit.getWorldContainer()+File.separator+name),"voyage", null, new SpigotSerializer());
+            this.config = new BoostedConfig(new File(Bukkit.getWorldContainer()+File.separator+name),"voyage", null, SpigotSerializer.getInstance());
         }
         return config;
     }

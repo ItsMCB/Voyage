@@ -40,7 +40,7 @@ public class VoyageWorldManager {
     }
 
     public BoostedConfig saveConfig(String worldName) {
-        BoostedConfig worldConfig = new BoostedConfig(dataFolder,"worlds"+ File.separator + worldName, null, new SpigotSerializer());
+        BoostedConfig worldConfig = new BoostedConfig(dataFolder,"worlds"+ File.separator + worldName, null, SpigotSerializer.getInstance());
         worldConfig.save();
         return worldConfig;
     }
