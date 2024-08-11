@@ -129,7 +129,7 @@ public class VoyageWorld implements ConfigurationSerializable {
 
     public boolean delete() {
         if (unload()) {
-            return FileUtils.deleteFile(getFolder());
+            return FileUtils.delete(getFolder());
         }
         return false;
     }

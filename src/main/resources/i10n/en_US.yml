@@ -13,7 +13,6 @@ world:
   deletion-complete: "&aWorld has been successfully deleted."
   deletion-error: "&cAn error occurred while deleting the world. Did the world not unload before being deleted?"
   does-not-exist: "&cThat world can't be found. Is it loaded?"
-  creation-error-seed: "&cProvided seed is not valid."
   creation-error-type: "&cProvided type is not valid."
   creation-error-environment: "&cProvided environment is not valid."
   creation-creating: "&7Creating world... This may take a moment!"

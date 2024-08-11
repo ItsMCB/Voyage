@@ -36,10 +36,9 @@ public class DeleteCmd extends CustomCommand {
         }
         VoyageWorld voyageWorld = new VoyageWorld(args[0]);
         // Load temporarily to get folder
-        File worldFolder = voyageWorld.getFolder();
         voyageWorld.unload();
         // delete files
-        if (!FileUtils.deleteFile(worldFolder)) {
+        if (!voyageWorld.delete()) {
             new BukkitMsgBuilder(instance.getLocalizationManager().getWithPrefix("world.deletion-error")).send(player);
             return;
         }

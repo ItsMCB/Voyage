@@ -17,13 +17,15 @@ import java.util.Objects;
 
 public class VoyageAPI {
 
-    public static boolean isSeed(String input) {
-        try {
-            Long.parseLong(input);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
+    public static long generateSeedFromString(String input) {
+        long seed = 0;
+        if (input == null || input.isEmpty()) {
+            return seed;
         }
+        for (char c : input.toCharArray()) {
+            seed = 31 * seed + c;
+        }
+        return seed;
     }
 
     public static boolean isEnvironment(String input) {
