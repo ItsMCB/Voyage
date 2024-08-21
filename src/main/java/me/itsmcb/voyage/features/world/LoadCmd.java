@@ -40,6 +40,6 @@ public class LoadCmd extends CustomCommand {
 
     @Override
     public List<String> getAdditionalCompletions(CommandSender sender) {
-        return VoyageAPI.unloadedWorlds();
+        return VoyageAPI.unloadedWorlds().stream().map(s -> "\""+s+"\"").toList();
     }
 }

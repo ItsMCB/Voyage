@@ -22,13 +22,13 @@ public class ListCmd extends CustomCommand {
         VoyageAPI.loadedWorlds().forEach(world -> {
             new BukkitMsgBuilder(instance.getLocalizationManager().get("world.list.entry-loaded", world.getName()))
                     .hover(instance.getLocalizationManager().get("world.list.click-to-teleport"))
-                    .clickEvent(ClickEvent.Action.RUN_COMMAND, "/world teleport " + world.getName())
+                    .clickEvent(ClickEvent.Action.RUN_COMMAND, "/world teleport \"" + world.getName()+"\"")
                     .send(player);
         });
         VoyageAPI.unloadedWorlds().forEach(worldName -> {
             new BukkitMsgBuilder(instance.getLocalizationManager().get("world.list.entry-unloaded", worldName))
                     .hover(instance.getLocalizationManager().get("world.list.click-to-load"))
-                    .clickEvent(ClickEvent.Action.RUN_COMMAND, "/world load " + worldName)
+                    .clickEvent(ClickEvent.Action.RUN_COMMAND, "/world load \"" + worldName+"\"")
                     .send(player);
         });
     }

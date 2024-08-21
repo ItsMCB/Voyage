@@ -53,6 +53,6 @@ public class CopySCmd extends CustomCommand {
 
     @Override
     public List<String> getAdditionalCompletions(CommandSender sender) {
-        return VoyageAPI.allWorldFolderNames();
+        return VoyageAPI.allWorldFolderNames().stream().map(s -> "\""+s+"\"").toList();
     }
 }

@@ -38,6 +38,6 @@ public class UnloadCmd extends CustomCommand {
 
     @Override
     public List<String> getAdditionalCompletions(CommandSender sender) {
-        return VoyageAPI.loadedWorlds().stream().map(WorldInfo::getName).toList();
+        return VoyageAPI.loadedWorlds().stream().map(WorldInfo::getName).map(s -> "\""+s+"\"").toList();
     }
 }
