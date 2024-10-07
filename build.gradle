@@ -8,50 +8,40 @@ version = '1.0-SNAPSHOT'
 repositories {
     mavenCentral()
     maven {
-        name = 'papermc-repo'
-        url = 'https://papermc.io/repo/repository/maven-public/'
+        name = 'papermc'
+        url = 'https://repo.papermc.io/repository/maven-public/'
     }
-    maven {
-        name = 'sonatype'
-        url = 'https://oss.sonatype.org/content/groups/public/'
-    }
-    // PAPI
-    maven {
-        url = 'https://repo.extendedclip.com/content/repositories/placeholderapi/'
-    }
+    maven { url 'https://repo.helpch.at/releases/' } // PAPI
 }
 
 dependencies {
-    compileOnly 'io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT'
-    compileOnly 'me.clip:placeholderapi:2.11.3'
+    compileOnly 'io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT'
+    compileOnly 'me.clip:placeholderapi:2.11.6'
     compileOnly files('/home/martin/GitHub/VexelCore/bukkit/build/libs/VexelCore-Bukkit-1.0.1-SNAPSHOT.jar')
 }
 
-def targetJavaVersion = 17
 java {
-    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
-    sourceCompatibility = javaVersion
-    targetCompatibility = javaVersion
-    if (JavaVersion.current() < javaVersion) {
-        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
 tasks.withType(JavaCompile).configureEach {
-    if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
-        options.release = targetJavaVersion
+    options.release = 21
+}
+
+processResources {
+    filesMatching('**/*.yml') {
+        expand project.properties
     }
 }
 
-// Add gradle project version to each version placeholder in sources
-processResources {
-    filter { String line -> line.replace('${version}', project.version.toString()) }
+tasks.register('processSources', Sync) {
+    from sourceSets.main.java
+    into "$buildDir/generated-src"
+    filter { line -> line.replace('${version}', version.toString()) }
 }
 
-task processSources(type: Sync) {
-    from sourceSets.main.java.srcDirs
-    filter { String line -> line.replace('${version}', project.version.toString()) }
-    into "$buildDir/src"
+tasks.named('compileJava') {
+    source = processSources.outputs
 }
-
-compileJava.source = processSources.outputs

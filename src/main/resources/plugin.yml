@@ -1,7 +1,7 @@
 name: Voyage
 version: '${version}'
 main: me.itsmcb.voyage.Voyage
-api-version: 1.18
+api-version: 1.21
 load: STARTUP
 authors: [ ItsMCB ]
 description: Modern Minecraft world management solution

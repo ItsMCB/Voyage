@@ -1,14 +1,38 @@
-# Voyage
-The Minecraft world management solution that's simple to use but powerful when needed.
+<div align="center">
+	<h1> Voyage </h1>
+</div>
 
-# Dependencies
-Voyage takes advantage of other plugins. Please consider adding the following to your server.
+<div align="center">
+<a target="_blank" href="https://github.com/itsmcb/Voyage/blob/main/LICENSE">
+       <img alt="Software License" src="https://img.shields.io/github/license/itsmcb/voyage?color=7c3aed&style=flat-square">
+    </a>
+    <a target="_blank" href="https://github.com/itsmcb/Voyage/releases">
+        <img alt="Version" src="https://img.shields.io/github/v/release/itsmcb/voyage?color=7c3aed&label=version&style=flat-square">
+    </a>
+     <a target="_blank" href="https://github.com/ItsMCB/Voyage/commits/">
+       <img alt="Last Commit" src="https://img.shields.io/github/last-commit/itsmcb/voyage?color=7c3aed&style=flat-square">
+    </a>
+    <br>
+    <a target="_blank" href="https://discord.gg/86qJJHtDgT">
+        <img alt="Discord" src="https://img.shields.io/badge/Discord-Voyage-7c3aed?logo=discord&style=flat-square">
+    </a>
+</div>
 
-Required:
+<div align="center">
+<h2>Modern Minecraft world management for <a target="_blank" href="https://papermc.io/">Paper</a> and <a target="_blank" href="https://purpurmc.org/">Purpur</a></h2>
+<p style="text-align: center;">Voyage is a work-in-progress world management solution designed to be simple to use but powerful but needed.</p>
+
+<div align="center">
+	<h2> Download </h2>
+	A pre-built jar will be provided once Voyage is ready for a 1.0 release. Until then, feel free to clone the repo and build the jar yourself.
+
+Must also install (dependency):
 - [VexelCore 1.0.1 Snapshot](https://github.com/ItsMCB/VexelCore)
 
 Not required, but enables extra feature:
 - Placeholder API (Placeholder Support)
+</div>
+
 
 # Commands
 ### World
@@ -48,31 +72,28 @@ Options and values:
 # Generators
 Voyage comes with multiple basic **built-in** generators.
 
-In `bukkit.yml`, add a `worlds` configuration section. 
+In `bukkit.yml`, add a `worlds` configuration section.   
 Then add a subsection with the world name and generator.
 
 ## Void
-```yaml
-worlds:
-  world:
-    generator: Voyage:void
-```
+```yaml  
+worlds:  
+ world: generator: Voyage:void  
+```  
 
 ## Superflat
 NOTE: The block generation height of the superflat world can be customized by adding `:<height as int>` to the end of the generator configuration section.
 
-```yaml
-worlds:
-  world:
-    generator: Voyage:superflat:-60
-```
+```yaml  
+worlds:  
+ world: generator: Voyage:superflat:-60  
+```  
 
 ## Moon
-```yaml
-worlds:
-  world:
-    generator: Voyage:moon
-```
+```yaml  
+worlds:  
+ world: generator: Voyage:moon  
+```  
 
 
 # Placeholders
@@ -95,16 +116,17 @@ worlds:
 `%voyage_chunk_z` - Returns player chunk Z coordinate
 
 # Datapacks
-In vanilla Minecraft, datapacks are put into the desired world's datapacks folder.
+In vanilla Minecraft, datapacks are put into the desired world's datapacks folder.  
 On Bukkit-based Minecraft servers, they are put into the main world's folder and affect the whole server.
 
 # Contributors
 Contributions are highly appreciated!
 
-When working with Voyage in your local environment, please compile VexelCore and change Voyage's `build.gradle` VexelCore dependency to be the locally compiled file path.
+When working with Voyage in your local environment, please compile VexelCore and change Voyage's `build.gradle` VexelCore dependency to be the locally compiled file path.  
 This solution is temporary while the API gets worked on.
 
 # Alternatives
 Voyage is awesome, but there are other great open-source plugins to try. Here are a few:
 1. [Multiverse](https://github.com/Multiverse/Multiverse-Core)
 2. [MyWorlds](https://github.com/bergerhealer/MyWorlds)
+
