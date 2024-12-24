@@ -1,7 +1,7 @@
 package me.itsmcb.voyage;
 
 import me.itsmcb.vexelcore.bukkit.api.managers.BukkitFeatureManager;
-import me.itsmcb.vexelcore.bukkit.api.managers.LocalizationManager;
+import me.itsmcb.vexelcore.bukkit.api.managers.OldLocalizationManager;
 import me.itsmcb.vexelcore.bukkit.api.utils.PluginUtils;
 import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
 import me.itsmcb.voyage.api.VoyageWorld;
@@ -26,12 +26,12 @@ import java.util.Arrays;
 public final class Voyage extends JavaPlugin {
 
     private Voyage instance;
-    private LocalizationManager localizationManager;
+    private OldLocalizationManager localizationManager;
     private BoostedConfig mainConfig;
     private BukkitFeatureManager featureManager;
     private VoyageWorldManager worldManager;
 
-    public LocalizationManager getLocalizationManager() {
+    public OldLocalizationManager getLocalizationManager() {
         return localizationManager;
     }
     public BoostedConfig getMainConfig() {
@@ -49,7 +49,7 @@ public final class Voyage extends JavaPlugin {
 
         // Load configurations and options
         // todo hook into future localization plugin to get default server language
-        this.localizationManager = new LocalizationManager(this, "en_US");
+        this.localizationManager = new OldLocalizationManager(this, "en_US");
         localizationManager.register("en_US");
 
         // Config

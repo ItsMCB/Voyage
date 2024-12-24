@@ -3,8 +3,10 @@ package me.itsmcb.voyage.features.world;
 import me.itsmcb.vexelcore.bukkit.api.command.CustomCommand;
 import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.bukkit.api.utils.Msg;
+import me.itsmcb.vexelcore.bukkit.api.utils.WorldUtils;
 import me.itsmcb.vexelcore.common.api.command.CMDHelper;
 import me.itsmcb.vexelcore.common.api.utils.FileUtils;
+import me.itsmcb.vexelcore.common.api.utils.StringUtils;
 import me.itsmcb.voyage.Voyage;
 import me.itsmcb.voyage.api.VoyageAPI;
 import me.itsmcb.voyage.api.VoyageWorld;
@@ -43,9 +45,9 @@ public class InfoCmd extends CustomCommand {
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.total-chunks"), world.getChunkCount()+""),
                 instance.getLocalizationManager().get("result",  instance.getLocalizationManager().get("world.info.total-entities"), world.getEntities().size()+""),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.total-tile-entities"), world.getTileEntityCount()+""),
-                instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.total-living-entities"), world.getLivingEntities()+""),
+                instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.total-living-entities"), StringUtils.getCommaString(world.getLivingEntities().stream().map(e -> e.getType().getKey().value()).toList())),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.players"), world.getPlayerCount()+""),
-                instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.time"), world.getTime()+""),
+                instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.time"), WorldUtils.getTimeAsName(world)),
                 instance.getLocalizationManager().get("result", instance.getLocalizationManager().get("world.info.border-size"), world.getWorldBorder().getSize()+"")
         );
         // todo data folder + world

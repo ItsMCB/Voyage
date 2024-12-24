@@ -39,11 +39,6 @@ public class EntitiesCmd extends CustomCommand {
     }
 
     @Override
-    public void executeAsConsole(CommandSender console, String[] args) {
-        new BukkitMsgBuilder(instance.getLocalizationManager().getWithPrefix("error-player-only-command")).send(console);
-    }
-
-    @Override
     public TextComponent permissionError() {
         return new BukkitMsgBuilder(instance.getLocalizationManager().getWithPrefix("error-permission")).get();
     }

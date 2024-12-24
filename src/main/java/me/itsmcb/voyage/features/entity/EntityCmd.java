@@ -6,7 +6,6 @@ import me.itsmcb.vexelcore.common.api.command.CMDHelper;
 import me.itsmcb.vexelcore.common.api.utils.ArgUtils;
 import me.itsmcb.voyage.Voyage;
 import net.kyori.adventure.text.TextComponent;
-import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
@@ -74,11 +73,6 @@ public class EntityCmd extends CustomCommand {
             return;
         }
         player.sendMessage(help());
-    }
-
-    @Override
-    public void executeAsConsole(CommandSender console, String[] args) {
-        new BukkitMsgBuilder(instance.getLocalizationManager().getWithPrefix("error-player-only-command")).send(console);
     }
 
     @Override
