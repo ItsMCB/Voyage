@@ -121,10 +121,32 @@ public class VoyageWorld implements ConfigurationSerializable {
     }
 
     public boolean unload() {
+        if (!isLoaded()) {
+            return true;
+        }
         if (!kickAll()) {
             return false;
         }
         return Bukkit.unloadWorld(world,true);
+    }
+
+    /**
+     * Attempts to softly unload the world.
+     * <p>
+     * The key difference between this and {@link #unload()} is that it will
+     * not unload a world if a player is present in it.
+     *
+     * @return {@code true} if the world was successfully unloaded or was already unloaded,
+     *         {@code false} if there are players present in the associated world or another unload problem occurs.
+     */
+    public boolean softUnload() {
+        if (!isLoaded()) {
+            return true;
+        }
+        if (!world.getPlayers().isEmpty()) {
+            return false;
+        }
+        return unload();
     }
 
     public boolean delete() {
