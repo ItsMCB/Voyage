@@ -1,13 +1,18 @@
 package me.itsmcb.voyage.api;
 
+import io.papermc.paper.registry.RegistryAccess;
+import io.papermc.paper.registry.RegistryKey;
 import libs.dev.dejvokep.boostedyaml.route.Route;
 import libs.dev.dejvokep.boostedyaml.spigot.SpigotSerializer;
-import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import me.itsmcb.vexelcore.common.api.config.BoostedConfig;
 import me.itsmcb.vexelcore.common.api.utils.FileUtils;
+import me.itsmcb.voyage.worldgen.biomeproviders.BuffetProvider;
+import net.kyori.adventure.key.Key;
 import org.bukkit.*;
+import org.bukkit.block.Biome;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
 import org.bukkit.configuration.serialization.SerializableAs;
+import org.bukkit.generator.BiomeProvider;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -20,6 +25,7 @@ public class VoyageWorld implements ConfigurationSerializable {
     private String name;
     private WorldCreator worldCreator;
     private String generator;
+    private String buffetBiomeName;
     private World world = null;
     private boolean loadOnStart = false;
     private BoostedConfig config;
@@ -71,6 +77,16 @@ public class VoyageWorld implements ConfigurationSerializable {
     public VoyageWorld setDifficulty(Difficulty difficulty) {
         getWorld().setDifficulty(difficulty);
         return this;
+    }
+
+    public VoyageWorld setSingleWorldBiome(@NotNull Biome biome) {
+        this.buffetBiomeName = biome.getKey().value();
+        worldCreator.biomeProvider(getSingleBiomeProvider(this.buffetBiomeName));
+        return this;
+    }
+
+    private BiomeProvider getSingleBiomeProvider(String biomeName) {
+        return new BuffetProvider(RegistryAccess.registryAccess().getRegistry(RegistryKey.BIOME).get(Key.key(biomeName)));
     }
 
     public VoyageWorld setGenerator(String input) {
@@ -194,6 +210,9 @@ public class VoyageWorld implements ConfigurationSerializable {
         map.put("name",name);
         map.put("load-on-start",loadOnStart);
         map.put("generator",generator);
+        if (buffetBiomeName != null) {
+            map.put("buffet", buffetBiomeName);
+        }
         return map;
     }
 
@@ -216,6 +235,9 @@ public class VoyageWorld implements ConfigurationSerializable {
         }
         if (map.containsKey("generator")) {
             this.setGenerator((String) map.get("generator"));
+        }
+        if (map.containsKey("buffet")) {
+            this.worldCreator.biomeProvider(getSingleBiomeProvider((String) map.get("buffet")));
         }
         return this;
     }

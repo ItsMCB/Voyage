@@ -37,6 +37,7 @@ world:
     name: "Name"
     environment: "Environment"
     generator: "Generator"
+    biome-provider: "Biome Provider"
     difficulty: "Difficulty"
     loaded-chunks: "Loaded Chunks"
     total-chunks: "Total Chunks"
