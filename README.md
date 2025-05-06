@@ -86,18 +86,24 @@ In `bukkit.yml`, add a `worlds` configuration section.
 Then add a subsection with the world name and generator.
 
 ## Void
-```yaml worlds:    
-world: generator: Voyage:void   
+```yaml 
+worlds:    
+  world:
+    generator: Voyage:void   
 ```   
 ## Superflat
 NOTE: The block generation height of the superflat world can be customized by adding `:<height as int>` to the end of the generator configuration section.
 
-```yaml worlds:    
-world: generator: Voyage:superflat:-60   
+```yaml 
+worlds:    
+  world:
+    generator: Voyage:superflat:-60   
 ```   
 ## Moon
-```yaml worlds:    
-world: generator: Voyage:moon   
+```yaml
+worlds:    
+  world:
+    generator: Voyage:moon   
 ```   
 
 # Placeholders

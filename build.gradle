@@ -15,7 +15,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly 'io.papermc.paper:paper-api:1.21.3-R0.1-SNAPSHOT' // Paper
+    compileOnly 'io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT' // Paper
     compileOnly 'me.clip:placeholderapi:2.11.6' // PAPI
     compileOnly files('/home/martin/GitHub/VexelCore/bukkit/build/libs/VexelCore-Bukkit-1.0.1-SNAPSHOT.jar') // VexelCore
 }

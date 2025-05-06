@@ -32,7 +32,7 @@ public class CreateCmd extends CustomCommand {
         // TODO world name validation
         // TODO stop if world already exists
         if (!cmdHelper.argExists(0)) {
-            help();
+            help(player);
             return;
         }
         VoyageWorld voyageWorld = new VoyageWorld(args[0]);

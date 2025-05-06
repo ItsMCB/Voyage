@@ -27,7 +27,7 @@ public class CopySCmd extends CustomCommand {
     @Override
     public void executeAsPlayer(Player player, String[] args) {
         if (args.length < 2) {
-            player.sendMessage(help());
+            help(player);
             return;
         }
         if (!(VoyageAPI.allWorldFolderNames().stream().map(s -> s.toLowerCase()).toList().contains(args[0].toLowerCase()))) {

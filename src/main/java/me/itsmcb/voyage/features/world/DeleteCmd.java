@@ -25,7 +25,7 @@ public class DeleteCmd extends CustomCommand {
     @Override
     public void executeAsPlayer(Player player, String[] args) {
         if (args.length == 0) {
-            player.sendMessage(help());
+            help(player);
             return;
         }
         // Check confirmation

@@ -24,7 +24,7 @@ public class UnloadCmd extends CustomCommand {
     @Override
     public void executeAsPlayer(Player player, String[] args) {
         if (args.length == 0) {
-            player.sendMessage(help());
+            help(player);
             return;
         }
         VoyageWorld voyageWorld = new VoyageWorld(args[0]);

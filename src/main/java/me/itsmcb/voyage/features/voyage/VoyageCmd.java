@@ -34,7 +34,7 @@ public class VoyageCmd extends CustomCommand {
             new BukkitMsgBuilder("&aReloaded config!").send(player);
             return;
         }
-        player.sendMessage(help());
+        help(player);
     }
 
     @Override

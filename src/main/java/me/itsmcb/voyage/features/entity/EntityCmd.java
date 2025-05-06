@@ -33,7 +33,7 @@ public class EntityCmd extends CustomCommand {
     public void executeAsPlayer(Player player, String[] args) {
         CMDHelper cmdHelper = new CMDHelper(args);
         if (cmdHelper.argNotExists(0)) {
-            player.sendMessage(help());
+            help(player);
             return;
         }
         // Validate selected entity
@@ -72,7 +72,7 @@ public class EntityCmd extends CustomCommand {
             new AwarenessCmd(entity).executeAsPlayer(player,shiftedArgs);
             return;
         }
-        player.sendMessage(help());
+        help(player);
     }
 
     @Override
