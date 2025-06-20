@@ -14,18 +14,26 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Random;
 
 public class VoyageAPI {
 
+    /**
+     * Find the Minecraft seed associated with a string input.
+     * This matches vanilla Minecraft behavior, such as from the world creation seed section.
+     *
+     * @param input The string to be converted into a seed.
+     * @return A long representing the world seed.
+     */
     public static long generateSeedFromString(String input) {
-        long seed = 0;
         if (input == null || input.isEmpty()) {
-            return seed;
+            return new Random().nextLong(); // If there is no input, pick a random seed. This matches vanilla behavior.
         }
-        for (char c : input.toCharArray()) {
-            seed = 31 * seed + c;
+        try {
+            return Long.parseLong(input); // If already in the long seed format, pass it through.
+        } catch (NumberFormatException e) { // String conversion necessary
+            return input.hashCode();
         }
-        return seed;
     }
 
     public static boolean isEnvironment(String input) {

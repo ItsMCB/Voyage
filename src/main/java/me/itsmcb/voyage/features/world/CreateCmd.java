@@ -41,11 +41,7 @@ public class CreateCmd extends CustomCommand {
 
         String seed = cmdHelper.getFlag("--seed");
         if (seed != null) {
-            try {
-                voyageWorld.setSeed(Long.parseLong(seed));
-            } catch (NumberFormatException e) {
-                voyageWorld.setSeed(VoyageAPI.generateSeedFromString(seed));
-            }
+            voyageWorld.setSeed(VoyageAPI.generateSeedFromString(seed));
         }
 
         String type = cmdHelper.getFlag("--type");
