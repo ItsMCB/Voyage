@@ -1,14 +1,50 @@
-#
-# Voyage Config v${version}
-#
+# ====================
+# Voyage Configuration
+# ====================
 
-# Do not edit this!
-file-version: 1
+# The designated fallback destination when players are removed from a loaded dimension.
+default-world: "minecraft:overworld"
 
-# Will log debug information to the console. Meant for developers or bug hunters.
-enable_debug: true
+# Worlds under the same group share player inventories, health, etc.
+# This section forces data linkage upon server start. Dynamically added linkages will not appear here.
+world-groups:
+  default_group:
+    - "minecraft:overworld"
+    - "minecraft:the_nether"
+    - "minecraft:the_end"
 
-# If true, Voyage will take control of handling worlds.
-handle_worlds: true
+# Profiles Configuration
+profiles:
+  # If true, players joining a new profile group for the first time will spawn with a fresh inventory.
+  # If false, they will bring whatever inventory they had at the time of the switch.
+  start-fresh-on-first-join: true
 
-# // TODO have this file actually do something
+# World Presets (Templates)
+# Used via /world create <key> --preset <name>
+presets:
+  void:
+    environment: NORMAL
+    worldType: FLAT
+    generatorSettings: '{"layers":[{"block":"minecraft:air","height":1}],"biome":"minecraft:the_void","features":false,"lakes":false}'
+    generateStructures: false
+  flat:
+    environment: NORMAL
+    worldType: FLAT
+    generatorSettings: '{"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:dirt","height":2},{"block":"minecraft:grass_block","height":1}],"biome":"minecraft:plains","features":false,"lakes":false}'
+    generateStructures: false
+  amplified:
+    environment: NORMAL
+    worldType: AMPLIFIED
+
+# Webhook Integration
+webhook:
+  url: ""
+  # Events to log: WORLD_CREATE, WORLD_DELETE, WORLD_CLONE, WORLD_IMPORT, WORLD_EXPORT, PROFILE_LINK, PORTAL_LINK
+  events:
+    - WORLD_CREATE
+    - WORLD_DELETE
+    - WORLD_CLONE
+    - WORLD_IMPORT
+    - WORLD_EXPORT
+    - PROFILE_LINK
+    - PORTAL_LINK

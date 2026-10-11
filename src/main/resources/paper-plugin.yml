@@ -1,0 +1,20 @@
+name: Voyage
+description: $description
+prefix: Voyage
+version: '${version}'
+
+main: org.libregalaxy.voyage.VoyagePlugin
+bootstrapper: org.libregalaxy.voyage.VoyagePluginBootstrap
+loader: org.libregalaxy.voyage.VoyagePluginLoader
+api-version: '26.2'
+load: STARTUP
+
+authors: [ ItsMCB ]
+website: https://libregalaxy.org
+
+dependencies:
+  server:
+    VexelCore:
+      required: true
+      load: BEFORE
+      join-classpath: true
