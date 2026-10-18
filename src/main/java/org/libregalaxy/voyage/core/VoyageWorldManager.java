@@ -2,6 +2,7 @@ package org.libregalaxy.voyage.core;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.WorldType;
@@ -228,9 +229,22 @@ public class VoyageWorldManager implements VoyageAPI {
         return context.getService(PlayerDataManager.class).removeWorldDataLink(worldKey, cloneData, progress);
     }
 
+    /**
+     * Retrieves the last physical location where the player logged off within the
+     * given world's profile group.
+     *
+     * <p>This method is defensive against environments where the
+     * {@link PlayerDataManager} service has not been registered yet (e.g., during
+     * early plugin initialization or in unit tests that exercise the world manager
+     * in isolation). When the service is unavailable, {@link Optional#empty()} is
+     * returned so callers can fall back to the world's spawn location instead of
+     * throwing an {@link NullPointerException}.
+     */
     @Override
     public Optional<OfflineLocation> getPlayerLogOffLocation(@NotNull NamespacedKey worldKey, java.util.UUID playerUuid) {
-        return context.getService(PlayerDataManager.class).getPlayerLogOffLocation(worldKey, playerUuid);
+        PlayerDataManager playerDataManager = context.getService(PlayerDataManager.class);
+        if (playerDataManager == null) return Optional.empty();
+        return playerDataManager.getPlayerLogOffLocation(worldKey, playerUuid);
     }
 
     @Override
@@ -322,7 +336,8 @@ public class VoyageWorldManager implements VoyageAPI {
         final World destination = fallback;
         for (Player player : List.copyOf(world.getPlayers())) {
             if (destination != null) {
-                teleports.add(player.teleportAsync(destination.getSpawnLocation()).exceptionally(ex -> false));
+                Location destLoc = getPlayerEntryLocation(destination, player.getUniqueId());
+                teleports.add(player.teleportAsync(destLoc).exceptionally(ex -> false));
             } else {
                 player.kick(Component.text("This world is being unloaded and no fallback world is available."));
             }

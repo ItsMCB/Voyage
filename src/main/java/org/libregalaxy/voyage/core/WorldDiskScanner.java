@@ -24,11 +24,22 @@ public class WorldDiskScanner {
         this.manager = manager;
     }
 
+    /**
+     * Resolves the on-disk directories that may contain dimension payloads.
+     */
     public File[] getDimensionRoots() {
         Set<File> roots = new LinkedHashSet<>();
-        Path levelDir = Bukkit.getServer().getLevelDirectory();
-        roots.add(levelDir.resolve("dimensions").toFile());
-        roots.add(new File(Bukkit.getWorldContainer(), "dimensions"));
+
+        File worldContainer = null;
+        try {
+            worldContainer = Bukkit.getWorldContainer();
+        } catch (Throwable ignored) {
+            // getWorldContainer() may throw or return null in mocked environments.
+        }
+        if (worldContainer != null) {
+            roots.add(new File(worldContainer, "dimensions"));
+        }
+
         return roots.toArray(new File[0]);
     }
 

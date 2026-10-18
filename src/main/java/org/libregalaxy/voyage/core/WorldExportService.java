@@ -1,7 +1,9 @@
 package org.libregalaxy.voyage.core;
 
+import me.itsmcb.vexelcore.bukkit.api.text.BukkitMsgBuilder;
 import net.kyori.adventure.nbt.CompoundBinaryTag;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -82,6 +84,10 @@ public class WorldExportService {
 
                 Map<UUID, VanillaPlayerData.LastPosition> liveWorldPositions = new LinkedHashMap<>();
                 Map<UUID, CompoundBinaryTag> serverStates = new LinkedHashMap<>();
+
+                final List<UUID> playersToRestore = (world != null)
+                        ? world.getPlayers().stream().map(Player::getUniqueId).toList()
+                        : List.of();
 
                 if (world != null) {
                     PlayerDataManager pdm = context.getService(PlayerDataManager.class);
@@ -172,7 +178,40 @@ public class WorldExportService {
                 }).whenComplete((v, ex) -> {
                     exportingWorlds.remove(worldKey);
                     if (wasLoaded) {
-                        worldManager.getManagedWorld(worldKey).ifPresent(ManagedWorld::load);
+                        Optional<ManagedWorld> managedWorldOpt = worldManager.getManagedWorld(worldKey);
+                        if (managedWorldOpt.isPresent()) {
+                            managedWorldOpt.get().load().thenAccept(reloadedWorld -> {
+                                Runnable restoreTask = () -> {
+                                    for (UUID uuid : playersToRestore) {
+                                        Player p = Bukkit.getPlayer(uuid);
+                                        if (p != null && p.isOnline()) {
+                                            Location returnLoc = worldManager.getPlayerEntryLocation(reloadedWorld, uuid);
+                                            p.teleportAsync(returnLoc);
+                                            new BukkitMsgBuilder("&7You were brought back to the exported world.").send(p);
+                                        }
+                                    }
+                                };
+                                if (Bukkit.isPrimaryThread()) {
+                                    restoreTask.run();
+                                } else {
+                                    Bukkit.getScheduler().runTask(plugin, restoreTask);
+                                }
+                                if (ex != null) {
+                                    exportFuture.completeExceptionally(ex);
+                                } else {
+                                    exportFuture.complete(null);
+                                }
+                            }).exceptionally(loadEx -> {
+                                plugin.getLogger().warning("Failed to reload world " + worldKey + " after export: " + loadEx.getMessage());
+                                if (ex != null) {
+                                    exportFuture.completeExceptionally(ex);
+                                } else {
+                                    exportFuture.complete(null);
+                                }
+                                return null;
+                            });
+                            return;
+                        }
                     }
                     if (ex != null) {
                         exportFuture.completeExceptionally(ex);

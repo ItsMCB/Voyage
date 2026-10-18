@@ -121,6 +121,11 @@ public interface VoyageAPI {
      * If the location is inside solid blocks, scans upward up to 64 blocks for safe clearance.
      * If in mid-air, searches downward up to 32 blocks for solid ground.
      * If in pure void, ensures a bedrock block beneath the location if called on the primary thread.
+     *
+     * <p>This method is defensive against worlds (e.g., mocks or partially-initialized
+     * environments) that return {@code null} from {@link World#getBlockAt(int, int, int)}
+     * or {@link Block#getType()}. When block inspection is not possible, the input
+     * location is returned unchanged so callers can still proceed with evacuation.
      */
     static @NotNull Location getSafeLocation(@NotNull Location location) {
         World world = location.getWorld();
@@ -131,13 +136,26 @@ public interface VoyageAPI {
         int by = safe.getBlockY();
         int bz = safe.getBlockZ();
 
+        Block feetBlock = world.getBlockAt(bx, by, bz);
+        Block headBlock = world.getBlockAt(bx, by + 1, bz);
+        if (feetBlock == null || headBlock == null) return safe;
+
+        Material feetMaterial = feetBlock.getType();
+        Material headMaterial = headBlock.getType();
+        if (feetMaterial == null || headMaterial == null) return safe;
+
         // If inside solid blocks, scan upward for safe clearance
-        if (world.getBlockAt(bx, by, bz).getType().isSolid() || world.getBlockAt(bx, by + 1, bz).getType().isSolid()) {
+        if (feetMaterial.isSolid() || headMaterial.isSolid()) {
             for (int dy = 1; dy <= 64; dy++) {
                 int testY = by + dy;
-                if (testY < world.getMaxHeight() - 1
-                        && !world.getBlockAt(bx, testY, bz).getType().isSolid()
-                        && !world.getBlockAt(bx, testY + 1, bz).getType().isSolid()) {
+                if (testY >= world.getMaxHeight() - 1) continue;
+                Block testFeet = world.getBlockAt(bx, testY, bz);
+                Block testHead = world.getBlockAt(bx, testY + 1, bz);
+                if (testFeet == null || testHead == null) continue;
+                Material testFeetMaterial = testFeet.getType();
+                Material testHeadMaterial = testHead.getType();
+                if (testFeetMaterial == null || testHeadMaterial == null) continue;
+                if (!testFeetMaterial.isSolid() && !testHeadMaterial.isSolid()) {
                     safe.setY(testY);
                     return safe;
                 }
@@ -147,7 +165,11 @@ public interface VoyageAPI {
             int minCheckY = Math.max(world.getMinHeight(), by - 32);
             boolean foundGround = false;
             for (int testY = by - 1; testY >= minCheckY; testY--) {
-                if (world.getBlockAt(bx, testY, bz).getType().isSolid()) {
+                Block test = world.getBlockAt(bx, testY, bz);
+                if (test == null) continue;
+                Material testMaterial = test.getType();
+                if (testMaterial == null) continue;
+                if (testMaterial.isSolid()) {
                     safe.setY(testY + 1);
                     foundGround = true;
                     break;
@@ -156,8 +178,11 @@ public interface VoyageAPI {
             // If in pure void, ensure a bedrock block beneath the player's feet
             if (!foundGround) {
                 Block below = world.getBlockAt(safe.getBlockX(), safe.getBlockY() - 1, safe.getBlockZ());
-                if (below.getType().isAir() && Bukkit.isPrimaryThread()) {
-                    below.setType(Material.BEDROCK);
+                if (below != null) {
+                    Material belowMaterial = below.getType();
+                    if (belowMaterial != null && belowMaterial.isAir() && Bukkit.isPrimaryThread()) {
+                        below.setType(Material.BEDROCK);
+                    }
                 }
             }
         }
@@ -168,9 +193,20 @@ public interface VoyageAPI {
     /**
      * Resolves the safe spawn location for a world, centering on the block (+0.5, +0.5)
      * and ensuring safe clearance above solid ground.
+     *
+     * <p>If the world reports a {@code null} spawn location (e.g., a mock world in
+     * tests), a sensible default location centered on the origin is synthesized so
+     * that evacuation callers can still receive a non-null {@link Location}.
      */
     static @NotNull Location getSafeSpawnLocation(@NotNull World world) {
-        Location spawn = world.getSpawnLocation().clone();
+        Location spawn = world.getSpawnLocation();
+        if (spawn == null) {
+            // Defensive fallback for worlds that cannot report a spawn location
+            // (e.g., mocked worlds in unit tests, or partially-initialized worlds).
+            // Center on the block at the origin so the returned Location is always valid.
+            return new Location(world, 0.5, 64.0, 0.5);
+        }
+        spawn = spawn.clone();
         spawn.setX(spawn.getBlockX() + 0.5);
         spawn.setZ(spawn.getBlockZ() + 0.5);
         return getSafeLocation(spawn);

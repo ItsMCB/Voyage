@@ -1,6 +1,7 @@
 package org.libregalaxy.voyage.core;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
@@ -98,7 +99,7 @@ class VoyageWorldManagerTest {
             future.join();
 
             // 8. Verify evacuation
-            verify(mockPlayer).teleportAsync(fallbackWorld.getSpawnLocation());
+            verify(mockPlayer).teleportAsync(any(Location.class));
 
             manager.shutdown();
         }

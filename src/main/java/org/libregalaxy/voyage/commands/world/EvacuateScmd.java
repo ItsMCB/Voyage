@@ -8,6 +8,7 @@ import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelPlayerSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -62,7 +63,8 @@ public class EvacuateScmd extends VexelPlayerSubCommand<VoyageContext> {
         }
 
         for (Player p : players) {
-            p.teleportAsync(fallback.getSpawnLocation());
+            Location destLoc = context.getWorldManager().getPlayerEntryLocation(fallback, p.getUniqueId());
+            p.teleportAsync(destLoc);
             TextUtils.send(p, "<color:#e98df5>ℹ</color> <yellow>You have been forcefully evacuated to <white><world></white>.</yellow>", Placeholder.unparsed("world", fallback.getKey().asString()));
         }
 
