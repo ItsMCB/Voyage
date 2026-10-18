@@ -542,7 +542,14 @@ public class VoyageWorldManager implements VoyageAPI {
     @Override
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                @Nullable UUID primaryPlayer, @Nullable String displayName) {
-        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName);
+        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true);
+    }
+
+    @Override
+    public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
+                                               @Nullable UUID primaryPlayer, @Nullable String displayName,
+                                               boolean includeRootFolder) {
+        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, includeRootFolder);
     }
 
     @Override

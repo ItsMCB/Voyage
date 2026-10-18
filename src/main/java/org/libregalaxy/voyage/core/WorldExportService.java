@@ -54,6 +54,12 @@ public class WorldExportService {
 
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                @Nullable UUID primaryPlayer, @Nullable String displayName) {
+        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true);
+    }
+
+    public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
+                                               @Nullable UUID primaryPlayer, @Nullable String displayName,
+                                               boolean includeRootFolder) {
         if (worldKey.equals(Bukkit.getWorlds().getFirst().getKey())) {
             return CompletableFuture.failedFuture(new IllegalStateException("Cannot export the main level."));
         }
@@ -145,9 +151,13 @@ public class WorldExportService {
                                     ? displayName
                                     : worldKey.asString().replace(':', '_');
 
+                            String folderName = includeRootFolder
+                                    ? worldKey.asString().replace(':', '_')
+                                    : "";
+
                             new VanillaWorldExporter(plugin.getLogger()).export(
                                     worldDir.toPath(),
-                                    worldKey.asString().replace(':', '_'),
+                                    folderName,
                                     exportName,
                                     voidWorld,
                                     players,

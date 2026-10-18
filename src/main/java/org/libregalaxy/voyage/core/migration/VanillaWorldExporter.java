@@ -286,8 +286,9 @@ public final class VanillaWorldExporter {
                 tempPlayerData.put(entry.getKey(), temp);
             }
 
-            // 4. Zip everything under a named world folder without duplicate entries.
-            String base = sanitizeFolderName(folderName) + "/";
+            // 4. Zip everything under a named world folder (or at root if folderName is blank) without duplicate entries.
+            String cleanFolder = sanitizeFolderName(folderName);
+            String base = cleanFolder.isEmpty() ? "" : cleanFolder + "/";
             String overworldBase = base + OVERWORLD_DIM_PREFIX;
 
             try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(
@@ -977,6 +978,7 @@ public final class VanillaWorldExporter {
     }
 
     private static void putDirEntry(@NotNull ZipOutputStream zip, @NotNull String name, @NotNull Set<String> addedEntries) throws IOException {
+        if (name.isEmpty() || name.equals("/")) return;
         String cleanName = name.endsWith("/") ? name : name + "/";
         if (addedEntries.add(cleanName)) {
             zip.putNextEntry(new ZipEntry(cleanName));
@@ -995,9 +997,9 @@ public final class VanillaWorldExporter {
         }
     }
 
-    private static @NotNull String sanitizeFolderName(@NotNull String name) {
-        String cleaned = name.replaceAll("[^A-Za-z0-9_.\\- ]", "_").trim();
-        return cleaned.isEmpty() ? "voyage-export" : cleaned;
+    private static @NotNull String sanitizeFolderName(@Nullable String name) {
+        if (name == null || name.isBlank()) return "";
+        return name.replaceAll("[^A-Za-z0-9_.\\- ]", "_").trim();
     }
 
     private static @NotNull String fileName(@NotNull Path path) {

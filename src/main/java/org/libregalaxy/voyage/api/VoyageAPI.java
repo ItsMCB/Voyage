@@ -299,6 +299,18 @@ public interface VoyageAPI {
     default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                 @Nullable java.util.UUID primaryPlayer,
                                                 @Nullable String displayName) {
+        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true);
+    }
+
+    /**
+     * Exports a world to a zipped archive with full player data, a
+     * human-readable world name, and an option to omit the top-level root folder
+     * inside the zip so contents extract directly into the archive's base folder.
+     */
+    default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
+                                                @Nullable java.util.UUID primaryPlayer,
+                                                @Nullable String displayName,
+                                                boolean includeRootFolder) {
         // Legacy implementations without the extended export fall back to the
         // plain archive (no embedded player data, default naming).
         return exportWorld(worldKey, targetZipFile);
