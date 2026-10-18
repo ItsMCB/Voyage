@@ -120,7 +120,7 @@ class ManagedWorldImplLifecycleTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings({"deprecation", "removal"})
     void configuredGameRules_areReturnedAsUnmodifiableSnapshot() {
         VoyageWorldManager manager = mock(VoyageWorldManager.class);
         ManagedWorldImpl managed = world(manager);

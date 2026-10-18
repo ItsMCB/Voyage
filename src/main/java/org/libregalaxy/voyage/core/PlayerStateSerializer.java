@@ -92,6 +92,10 @@ public class PlayerStateSerializer {
     }
 
     public void applyPlayerState(@NotNull Player player, @NotNull World world, @Nullable PlayerState state, boolean clearIfNull) {
+        applyPlayerState(player, world, state, clearIfNull, false);
+    }
+
+    public void applyPlayerState(@NotNull Player player, @NotNull World world, @Nullable PlayerState state, boolean clearIfNull, boolean restoreLocation) {
         if (state == null) {
             boolean startFresh = context.getPlugin().getConfig().getBoolean("profiles.start-fresh-on-first-join", true);
             // clearIfNull indicates whether this call is a cross-profile world transition where a fresh slate
@@ -131,9 +135,19 @@ public class PlayerStateSerializer {
                 // The governing world plugin sets the player's game mode
                 // based on their group rules, and savePlayerStateAsync persists it below.
 
+                // If restoring location for a fresh profile, place the player at this world's spawn location
+                if (restoreLocation) {
+                    Location spawn = world.getSpawnLocation().clone();
+                    player.teleportAsync(new Location(world, spawn.getBlockX() + 0.5, spawn.getBlockY(), spawn.getBlockZ() + 0.5, spawn.getYaw(), spawn.getPitch()));
+                }
+
                 // Immediately persist the newly initialized fresh state to disk for this profile
                 context.getService(PlayerDataManager.class).savePlayerStateAsync(player);
             } else {
+                if (restoreLocation) {
+                    Location spawn = world.getSpawnLocation().clone();
+                    player.teleportAsync(new Location(world, spawn.getBlockX() + 0.5, spawn.getBlockY(), spawn.getBlockZ() + 0.5, spawn.getYaw(), spawn.getPitch()));
+                }
                 // If not clearing (startFresh is false or this is an initial server login), persist current state
                 context.getService(PlayerDataManager.class).savePlayerStateAsync(player);
             }
@@ -158,9 +172,7 @@ public class PlayerStateSerializer {
         if (maxHealthAttr != null && state.maxHealth > 0) {
             try {
                 maxHealthAttr.setBaseValue(state.maxHealth);
-            } catch (Exception ignored) {
-                // Fail silently to prevent crashes from misconfigured attribute bounds
-            }
+            } catch (Exception ignored) {}
         }
 
         if (!player.isDead() && state.health > 0) {
@@ -208,6 +220,33 @@ public class PlayerStateSerializer {
             }
         } else {
             player.setRespawnLocation(null, true);
+        }
+
+        // Apply saved location for this world when requested (e.g. on server login)
+        if (restoreLocation) {
+            Location targetLoc = null;
+            if (state.worldLocations != null) {
+                LocationData data = state.worldLocations.get(world.getKey().asString());
+                if (data == null && world.getKey().getNamespace().equals(NamespacedKey.MINECRAFT)) {
+                    data = state.worldLocations.get(world.getKey().getKey());
+                }
+                if (data != null) {
+                    targetLoc = new Location(world, data.x, data.y, data.z, data.yaw, data.pitch);
+                }
+            }
+            if (targetLoc == null && state.lastLocWorld != null) {
+                if (state.lastLocWorld.equals(world.getKey().asString())
+                        || (world.getKey().getNamespace().equals(NamespacedKey.MINECRAFT) && state.lastLocWorld.equals(world.getKey().getKey()))) {
+                    targetLoc = new Location(world, state.lastLocX, state.lastLocY, state.lastLocZ, state.lastLocYaw, state.lastLocPitch);
+                }
+            }
+
+            if (targetLoc == null) {
+                Location spawn = world.getSpawnLocation().clone();
+                targetLoc = new Location(world, spawn.getBlockX() + 0.5, spawn.getBlockY(), spawn.getBlockZ() + 0.5, spawn.getYaw(), spawn.getPitch());
+            }
+
+            player.teleportAsync(targetLoc);
         }
     }
 

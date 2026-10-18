@@ -15,6 +15,7 @@ import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.core.PlayerDataManager;
 import org.libregalaxy.voyage.core.PlayerStateSerializer;
+import org.libregalaxy.voyage.core.VoyageWorldListener;
 import org.libregalaxy.voyage.core.VoyageWorldManager;
 import org.libregalaxy.voyage.core.WebhookService;
 import org.libregalaxy.voyage.listeners.VoyagePortalListener;
@@ -56,7 +57,7 @@ public final class VoyagePlugin extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(playerDataManager, this);
         getServer().getPluginManager().registerEvents(new VoyagePortalListener(worldManager, this), this);
-        getServer().getPluginManager().registerEvents(worldManager, this);
+        getServer().getPluginManager().registerEvents(new VoyageWorldListener(worldManager), this);
 
         VexelCommandRegistry registry = new VexelCommandRegistry(context);
         registry.register(new WorldCmd(context));

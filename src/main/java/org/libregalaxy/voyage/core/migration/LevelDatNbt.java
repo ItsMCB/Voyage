@@ -1,5 +1,6 @@
 package org.libregalaxy.voyage.core.migration;
 
+import net.kyori.adventure.nbt.BinaryTag;
 import net.kyori.adventure.nbt.BinaryTagIO;
 import net.kyori.adventure.nbt.CompoundBinaryTag;
 import org.bukkit.Bukkit;
@@ -9,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 /**
  * The single place in Voyage that reads and writes level.dat (and its
@@ -20,7 +22,9 @@ import java.nio.file.Path;
  *   <li>a root compound holding the level data under {@code "Data"};</li>
  *   <li>{@code Data.DataVersion} (Int) &gt; 0. A missing, zero, or mistyped
  *       DataVersion causes vanilla clients to reject world load;</li>
- *   <li>{@code Data.version} (Int) — the level-dat format version (19133).</li>
+ *   <li>{@code Data.version} (Int) — the level-dat format version (19133);</li>
+ *   <li>{@code Data.Version} (Compound) — version details (Id, Name, Series, Snapshot)
+ *       read by vanilla's singleplayer world selection menu.</li>
  * </ul>
  *
  * <p>26.x may keep the data version (and generator settings) in the companion
@@ -93,9 +97,10 @@ public final class LevelDatNbt {
     /**
      * Enforces the vanilla contract in memory:
      * <ul>
-     *   <li>preserves a valid DataVersion found in {@code Data} or the root;</li>
+     *   <li>ensures DataVersion reflects at least the server's data version so modern layouts load cleanly;</li>
      *   <li>repairs a missing/zero DataVersion with the running server's data version;</li>
      *   <li>backfills {@code Data.version}, {@code Data.GameType} and {@code Data.LevelName} when absent;</li>
+     *   <li>populates {@code Data.Version} compound so singleplayer displays the exact version;</li>
      *   <li>mirrors the DataVersion on the root compound.</li>
      * </ul>
      */
@@ -109,9 +114,18 @@ public final class LevelDatNbt {
                                                                     @Nullable String levelName,
                                                                     int fallbackDataVersion) {
         CompoundBinaryTag data = getData(root);
-        int dataVersion = resolveDataVersion(root, fallbackDataVersion);
+        int existingVersion = resolveDataVersion(root, 0);
+        int dataVersion = Math.max(existingVersion, fallbackDataVersion);
 
-        CompoundBinaryTag.Builder dataBuilder = CompoundBinaryTag.builder().put(data);
+        CompoundBinaryTag.Builder dataBuilder = CompoundBinaryTag.builder();
+        for (Map.Entry<String, ? extends BinaryTag> entry : data) {
+            String key = entry.getKey();
+            if (key.equalsIgnoreCase("requiresConversion") || key.equalsIgnoreCase("conversionStatus")) {
+                continue;
+            }
+            dataBuilder.put(key, entry.getValue());
+        }
+
         dataBuilder.putInt(DATA_VERSION_KEY, dataVersion);
         if (!data.keySet().contains(FORMAT_VERSION_KEY)) {
             dataBuilder.putInt(FORMAT_VERSION_KEY, FORMAT_VERSION_VALUE);
@@ -122,6 +136,20 @@ public final class LevelDatNbt {
         if (levelName != null && !levelName.isBlank()) {
             dataBuilder.putString("LevelName", levelName);
         }
+
+        // Always synchronize Data.Version so the Minecraft singleplayer menu displays the modern version
+        String versionName = "1.21.4";
+        try {
+            versionName = Bukkit.getMinecraftVersion();
+        } catch (Throwable ignored) {}
+
+        CompoundBinaryTag versionCompound = CompoundBinaryTag.builder()
+                .putInt("Id", dataVersion)
+                .putString("Name", versionName)
+                .putString("Series", "main")
+                .putByte("Snapshot", (byte) 0)
+                .build();
+        dataBuilder.put("Version", versionCompound);
 
         CompoundBinaryTag.Builder rootBuilder = CompoundBinaryTag.builder().put(root);
         rootBuilder.put(DATA_KEY, dataBuilder.build());
@@ -159,9 +187,7 @@ public final class LevelDatNbt {
 
     /**
      * The data version this server writes, resolved from the main level's own
-     * files (preferred) or {@link org.bukkit.UnsafeValues} (fallback). Only
-     * ever used as a repair fallback — valid source DataVersions are always
-     * preserved so the data fixers run.
+     * files (preferred) or {@link org.bukkit.UnsafeValues} (fallback).
      */
     @SuppressWarnings("deprecation")
     public static int serverDataVersion() {

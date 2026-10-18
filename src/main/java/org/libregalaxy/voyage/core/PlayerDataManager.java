@@ -324,18 +324,25 @@ public class PlayerDataManager implements Listener {
 
             boolean clearIfNull = player.hasPlayedBefore();
 
+            switchingProfiles.add(uuid);
+
             Bukkit.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
                 PlayerStateSerializer.PlayerState state = profileService.loadPlayerStateFromFile(profile, uuid);
 
                 Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
-                    if (player.isOnline() && player.getWorld().equals(world)) {
-                        stateSerializer.applyPlayerState(player, world, state, clearIfNull);
-                        player.updateInventory();
+                    try {
+                        if (player.isOnline() && player.getWorld().equals(world)) {
+                            stateSerializer.applyPlayerState(player, world, state, clearIfNull, true);
+                            player.updateInventory();
+                        }
+                    } finally {
+                        switchingProfiles.remove(uuid);
                     }
                 });
             });
 
         } catch (Exception e) {
+            switchingProfiles.remove(event.getPlayer().getUniqueId());
             context.getPlugin().getLogger().log(java.util.logging.Level.SEVERE, "Handled data synchronisation error on connect for " + event.getPlayer().getName(), e);
         }
     }

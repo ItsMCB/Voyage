@@ -29,7 +29,7 @@ class CreateScmdValidationTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings({"deprecation", "removal"})
     void booleanGamerules_acceptOnlyTrueOrFalse() throws Exception {
         WorldBuilder builder = mock(WorldBuilder.class);
 
@@ -43,7 +43,7 @@ class CreateScmdValidationTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings({"deprecation", "removal"})
     void integerGamerules_requireValidInteger() throws Exception {
         WorldBuilder builder = mock(WorldBuilder.class);
 

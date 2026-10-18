@@ -68,7 +68,9 @@ public final class VanillaPlayerData {
     /** Tags that reference content a vanilla singleplayer save does not have. */
     private static final Set<String> REMOVED_KEYS = Set.of(
             "RootVehicle", "root_vehicle", // entity references not present in the export
-            "bukkit", "Paper"              // server/plugin bookkeeping
+            "bukkit", "Paper",             // server/plugin bookkeeping
+            "WorldUUIDMost", "WorldUUIDLeast",
+            "SpawnWorld"
     );
 
     private VanillaPlayerData() {}
@@ -99,6 +101,13 @@ public final class VanillaPlayerData {
         CompoundBinaryTag.Builder builder = CompoundBinaryTag.builder();
         for (Map.Entry<String, ? extends BinaryTag> entry : base) {
             if (REMOVED_KEYS.contains(entry.getKey())) continue;
+            if (entry.getKey().equals("respawn") && entry.getValue() instanceof CompoundBinaryTag respawnComp) {
+                // Normalize 26.x respawn compound dimension so it never points to a custom server dimension
+                CompoundBinaryTag.Builder respawnBuilder = CompoundBinaryTag.builder().put(respawnComp);
+                respawnBuilder.putString("dimension", dimensionKey);
+                builder.put("respawn", respawnBuilder.build());
+                continue;
+            }
             builder.put(entry.getKey(), entry.getValue());
         }
 
@@ -119,11 +128,11 @@ public final class VanillaPlayerData {
         LastPosition last = player.lastPosition();
         if (last != null) {
             putPosition(builder, last.x(), last.y(), last.z(), last.yaw(), last.pitch());
-        } else if (!base.keySet().contains("Pos") && !base.keySet().contains("pos")
-                && fallbackPosition != null && fallbackPosition.length >= 3) {
+        } else if (fallbackPosition != null && fallbackPosition.length >= 3) {
             putPosition(builder, fallbackPosition[0], fallbackPosition[1], fallbackPosition[2], 0f, 0f);
         }
-        // else: no position known at all — leave absent and let vanilla derive one.
+        // Always prefer lastPosition (or world spawn if lastPosition is unknown) over raw server Pos,
+        // because raw server Pos may have been captured while the player was in a different world.
 
         return builder.build();
     }

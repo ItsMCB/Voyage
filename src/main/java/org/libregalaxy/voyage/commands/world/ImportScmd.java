@@ -185,6 +185,17 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
     private List<ImportTask> expandImportTargets(Path sourceDir, String namespace, @Nullable String explicitKey, CommandSender sender) {
         List<ImportTask> tasks = new ArrayList<>();
 
+        // If sourceDir is a complete standalone world save (contains level.dat or region files directly),
+        // do NOT descend into internal dimensions/minecraft/overworld. Treat sourceDir as the world save root.
+        if (Files.isRegularFile(sourceDir.resolve("level.dat")) || Files.isDirectory(sourceDir.resolve("region"))) {
+            String keyName = (explicitKey != null) ? explicitKey : sourceDir.getFileName().toString();
+            NamespacedKey targetKey = resolveNamespacedKey(namespace, keyName);
+            if (targetKey != null) {
+                tasks.add(new ImportTask(sourceDir, targetKey));
+            }
+            return tasks;
+        }
+
         Path dimsDir = sourceDir.resolve("dimensions");
         if (Files.isDirectory(dimsDir)) {
             try (Stream<Path> nsStream = Files.list(dimsDir)) {

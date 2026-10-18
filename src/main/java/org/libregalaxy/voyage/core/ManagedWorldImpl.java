@@ -9,6 +9,7 @@ import org.bukkit.WorldType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.api.ManagedWorld;
+import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.api.events.VoyageWorldLoadEvent;
 import org.libregalaxy.voyage.api.events.VoyageWorldPreLoadEvent;
 import org.libregalaxy.voyage.api.portal.PortalLink;
@@ -17,6 +18,7 @@ import org.libregalaxy.voyage.api.portal.PortalType;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -81,8 +83,7 @@ public class ManagedWorldImpl implements ManagedWorld {
                             boolean autoLoad,
                             @NotNull Map<PortalType, PortalLink> initialLinks,
                             boolean generateStructures) {
-        boolean isVoid = WorldBuilderImpl.isVoidGenerator(generator)
-                || (generatorSettings != null && generatorSettings.contains("the_void"));
+        boolean isVoid = VoyageAPI.isVoidWorld(generator, generatorSettings);
 
         this.key = key;
         this.manager = manager;
@@ -101,17 +102,21 @@ public class ManagedWorldImpl implements ManagedWorld {
     @Override public boolean isTemporary()                       { return temporary; }
     @Override public @NotNull World.Environment getEnvironment() { return environment; }
     @Override public long getSeed()                              { return seed; }
-    @Override public @NotNull Optional<String> getGenerator()   { return Optional.ofNullable(generator); }
-    @Override public @NotNull WorldType getWorldType()          { return worldType; }
+    @Override public @NotNull Optional<String> getGenerator()    { return Optional.ofNullable(generator); }
+    @Override public @NotNull WorldType getWorldType()           { return worldType; }
     @Override public @NotNull Optional<String> getGeneratorSettings() { return Optional.ofNullable(generatorSettings); }
     @Override public boolean isAutoLoad()                        { return autoLoad; }
-    @Override public @NotNull Difficulty getDifficulty()        { return difficulty; }
-    @Override public boolean isGenerateStructures()             { return generateStructures; }
+    @Override public @NotNull Difficulty getDifficulty()         { return difficulty; }
+    @Override public boolean isGenerateStructures()              { return generateStructures; }
 
-    public void setAutoLoad(boolean autoLoad) { this.autoLoad = autoLoad; }
+    public void setAutoLoad(boolean autoLoad) {
+        this.autoLoad = autoLoad;
+        manager.saveState();
+    }
+
     public void clearLinks()                  { this.portalLinks.clear(); }
 
-    @Override public boolean isLoaded()                        { return getBukkitWorld().isPresent(); }
+    @Override public boolean isLoaded()                          { return getBukkitWorld().isPresent(); }
     @Override public @NotNull Optional<World> getBukkitWorld() { return Optional.ofNullable(Bukkit.getWorld(key)); }
 
     @Override
@@ -232,7 +237,11 @@ public class ManagedWorldImpl implements ManagedWorld {
     @Override
     public void setDifficulty(@NotNull Difficulty difficulty) {
         this.difficulty = difficulty;
-        getBukkitWorld().ifPresent(world -> runOnMain(() -> world.setDifficulty(difficulty)));
+        getBukkitWorld().ifPresent(world -> runOnMain(() -> {
+            if (world.getDifficulty() != difficulty) {
+                world.setDifficulty(difficulty);
+            }
+        }));
         manager.saveState();
     }
 
@@ -251,7 +260,10 @@ public class ManagedWorldImpl implements ManagedWorld {
             gameRules.put(rule, value);
             getBukkitWorld().ifPresent(world -> runOnMain(() -> {
                 try {
-                    world.setGameRule(rule, value);
+                    // Only apply to Bukkit world if the value actually changed
+                    if (!Objects.equals(world.getGameRuleValue(rule), value)) {
+                        world.setGameRule(rule, value);
+                    }
                 } catch (Exception ignored) {}
             }));
         }
@@ -279,7 +291,7 @@ public class ManagedWorldImpl implements ManagedWorld {
         return Optional.ofNullable(spawn).map(int[]::clone);
     }
 
-    void setDifficultyInternal(@NotNull Difficulty difficulty) {
+    public void setDifficultyInternal(@NotNull Difficulty difficulty) {
         this.difficulty = difficulty;
     }
 
@@ -318,7 +330,7 @@ public class ManagedWorldImpl implements ManagedWorld {
         }
     }
 
-    void setGameRuleInternal(@NotNull GameRule<?> rule, @Nullable Object value) {
+    public void setGameRuleInternal(@NotNull GameRule<?> rule, @Nullable Object value) {
         if (value != null) {
             this.gameRules.put(rule, value);
         }
@@ -332,7 +344,7 @@ public class ManagedWorldImpl implements ManagedWorld {
 
     @Override
     public void setGeneratorSettings(@Nullable String generatorSettings) {
-        if (generatorSettings != null && generatorSettings.contains("the_void")) {
+        if (VoyageAPI.isVoidSettings(generatorSettings)) {
             this.worldType = WorldType.FLAT;
             this.generatorSettings = WorldBuilderImpl.VANILLA_VOID_SETTINGS;
             this.generateStructures = false;

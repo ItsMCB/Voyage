@@ -30,6 +30,7 @@ import org.libregalaxy.voyage.core.migration.WorldFormatDetector;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -80,6 +81,21 @@ public class WorldImportService {
     public CompletableFuture<VoyageAPI.ImportStrategy> importWorld(
             @NotNull Path sourceDir,
             @NotNull NamespacedKey targetKey,
+            boolean autoLink,
+            @Nullable String dataProfileId,
+            @Nullable VoyageAPI.DataLinkMergeStrategy mergeStrategy,
+            boolean deleteSourceAfterImport,
+            @Nullable World.Environment environmentOverride,
+            @Nullable String generatorOverride,
+            @Nullable String generatorSettingsOverride
+    ) {
+        return importWorld(sourceDir, targetKey, true, autoLink, dataProfileId, mergeStrategy, deleteSourceAfterImport, environmentOverride, generatorOverride, generatorSettingsOverride);
+    }
+
+    public CompletableFuture<VoyageAPI.ImportStrategy> importWorld(
+            @NotNull Path sourceDir,
+            @NotNull NamespacedKey targetKey,
+            boolean autoLoad,
             boolean autoLink,
             @Nullable String dataProfileId,
             @Nullable VoyageAPI.DataLinkMergeStrategy mergeStrategy,
@@ -155,6 +171,7 @@ public class WorldImportService {
                             environmentOverride != null ? environmentOverride : World.Environment.NORMAL);
                     Path overworldTarget = dimsRoot.resolve(ns).resolve(baseKey);
                     legacyMigrator.copyDimensionPayload(overworldSource, overworldTarget);
+                    migrateLegacyBorderOnDisk(overworldTarget);
                     stagedPaths.add(overworldTarget);
                     writeDimensionGenFiles(overworldTarget, targetKey, overworldInfo, parsedWorldData);
 
@@ -166,6 +183,7 @@ public class WorldImportService {
                     if (hasNether) {
                         Path netherTarget = dimsRoot.resolve(netherKey.getNamespace()).resolve(netherKey.getKey());
                         legacyMigrator.copyDimensionPayload(netherSource, netherTarget);
+                        migrateLegacyBorderOnDisk(netherTarget);
                         stagedPaths.add(netherTarget);
                         writeDimensionGenFiles(netherTarget, netherKey, netherInfo, parsedWorldData);
                     }
@@ -175,6 +193,7 @@ public class WorldImportService {
                     if (hasEnd) {
                         Path endTarget = dimsRoot.resolve(endKey.getNamespace()).resolve(endKey.getKey());
                         legacyMigrator.copyDimensionPayload(endSource, endTarget);
+                        migrateLegacyBorderOnDisk(endTarget);
                         stagedPaths.add(endTarget);
                         writeDimensionGenFiles(endTarget, endKey, endInfo, parsedWorldData);
                     }
@@ -184,7 +203,7 @@ public class WorldImportService {
                     CompletableFuture<Void> endFuture = hasEnd ? new CompletableFuture<>() : null;
 
                     Bukkit.getScheduler().runTask(plugin, () -> {
-                        createAndRestoreWorld(targetKey, overworldInfo, parsedWorldData.rawLevelData(), borderData).thenCompose(mw -> {
+                        createAndRestoreWorld(targetKey, overworldInfo, parsedWorldData.rawLevelData(), borderData, autoLoad).thenCompose(mw -> {
                             createdKeys.add(targetKey);
                             if (autoLink && hasNether) {
                                 mw.linkPortal(PortalType.NETHER, new PortalLink(netherKey, new VanillaScalingStrategy(8.0), new VanillaNetherGenerator()));
@@ -196,7 +215,7 @@ public class WorldImportService {
                         }).whenComplete((v, ex) -> completeFrom(overworldFuture, ex));
 
                         if (hasNether) {
-                            createAndRestoreWorld(netherKey, netherInfo, null, null).thenCompose(mw -> {
+                            createAndRestoreWorld(netherKey, netherInfo, null, null, autoLoad).thenCompose(mw -> {
                                 createdKeys.add(netherKey);
                                 if (autoLink) {
                                     mw.linkPortal(PortalType.NETHER, new PortalLink(targetKey, new VanillaScalingStrategy(0.125), new VanillaNetherGenerator()));
@@ -206,7 +225,7 @@ public class WorldImportService {
                         }
 
                         if (hasEnd) {
-                            createAndRestoreWorld(endKey, endInfo, null, null).thenCompose(mw -> {
+                            createAndRestoreWorld(endKey, endInfo, null, null, autoLoad).thenCompose(mw -> {
                                 createdKeys.add(endKey);
                                 if (autoLink) {
                                     mw.linkPortal(PortalType.END, new PortalLink(targetKey, new FixedSpawnStrategy(), new NoneGenerator()));
@@ -225,12 +244,13 @@ public class WorldImportService {
 
                     Path overworldTarget = dimsRoot.resolve(ns).resolve(baseKey);
                     legacyMigrator.copyDimensionPayload(overworldSource, overworldTarget);
+                    migrateLegacyBorderOnDisk(overworldTarget);
                     stagedPaths.add(overworldTarget);
                     writeDimensionGenFiles(overworldTarget, targetKey, dimInfo, parsedWorldData);
 
                     CompletableFuture<Void> singleFuture = new CompletableFuture<>();
                     Bukkit.getScheduler().runTask(plugin, () -> {
-                        createAndRestoreWorld(targetKey, dimInfo, parsedWorldData.rawLevelData(), borderData).thenCompose(mw -> {
+                        createAndRestoreWorld(targetKey, dimInfo, parsedWorldData.rawLevelData(), borderData, autoLoad).thenCompose(mw -> {
                             createdKeys.add(targetKey);
                             return applyDataProfile(targetKey, dataProfileId, mergeStrategy);
                         }).whenComplete((v, ex) -> completeFrom(singleFuture, ex));
@@ -258,6 +278,24 @@ public class WorldImportService {
         });
 
         return resultFuture;
+    }
+
+    private void migrateLegacyBorderOnDisk(@NotNull Path targetDir) {
+        try {
+            Path legacyBorder = targetDir.resolve("data").resolve("world_border.dat");
+            if (Files.isRegularFile(legacyBorder)) {
+                Path modernBorderDir = targetDir.resolve("data").resolve("minecraft");
+                Files.createDirectories(modernBorderDir);
+                Path modernBorder = modernBorderDir.resolve("world_border.dat");
+                if (!Files.exists(modernBorder)) {
+                    Files.move(legacyBorder, modernBorder, StandardCopyOption.REPLACE_EXISTING);
+                } else {
+                    Files.deleteIfExists(legacyBorder);
+                }
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to clean up legacy world_border.dat on disk: " + e.getMessage());
+        }
     }
 
     private static void completeFrom(CompletableFuture<Void> future, @Nullable Throwable ex) {
@@ -370,6 +408,10 @@ public class WorldImportService {
                         DimensionGenInfo info = parseDimensionGenTag(entry.getKey(), dimTag, globalSeed, globalGenerateStructures);
                         if (isExplicitVoid) {
                             info = new DimensionGenInfo(WorldType.FLAT, VoyageAPI.VANILLA_VOID_SETTINGS, "Voyage:void", info.environment(), info.seed(), false);
+                        } else if (generatorSettingsOverride != null) {
+                            info = new DimensionGenInfo(WorldType.FLAT, generatorSettingsOverride, generatorOverride, info.environment(), info.seed(), info.generateStructures());
+                        } else if (generatorOverride != null) {
+                            info = new DimensionGenInfo(info.worldType(), info.generatorSettingsJson(), generatorOverride, info.environment(), info.seed(), info.generateStructures());
                         }
                         dims.put(entry.getKey(), info);
                     }
@@ -382,7 +424,7 @@ public class WorldImportService {
 
             boolean isVoidGen = isExplicitVoid
                     || VoyageAPI.isVoidGenerator(generatorName)
-                    || generatorOptions.contains("the_void");
+                    || VoyageAPI.isVoidSettings(generatorOptions);
 
             WorldType type = isVoidGen ? WorldType.FLAT : switch (generatorName) {
                 case "flat" -> WorldType.FLAT;
@@ -391,15 +433,18 @@ public class WorldImportService {
                 default -> WorldType.NORMAL;
             };
 
-            String settingsJson = isVoidGen
-                    ? VoyageAPI.VANILLA_VOID_SETTINGS
-                    : (type == WorldType.FLAT ? parseLegacyFlatString(generatorOptions) : null);
-            boolean isVoid = isVoidGen || (settingsJson != null && settingsJson.contains("the_void"));
+            String parsedLegacySettings = (type == WorldType.FLAT) ? parseLegacyFlatString(generatorOptions) : null;
+            if (generatorSettingsOverride != null && !isVoidGen) {
+                parsedLegacySettings = generatorSettingsOverride;
+                type = WorldType.FLAT;
+            }
+            boolean isVoid = isVoidGen || VoyageAPI.isVoidSettings(parsedLegacySettings);
+            String settingsJson = isVoid ? VoyageAPI.VANILLA_VOID_SETTINGS : parsedLegacySettings;
 
             DimensionGenInfo fallback = new DimensionGenInfo(
                     type,
-                    isVoid ? VoyageAPI.VANILLA_VOID_SETTINGS : settingsJson,
-                    isVoid ? "Voyage:void" : (generatorName.startsWith("minecraft:") || generatorName.equals("default") || generatorName.equals("flat") ? null : generatorName),
+                    settingsJson,
+                    isVoid ? "Voyage:void" : (generatorOverride != null ? generatorOverride : (generatorName.startsWith("minecraft:") || generatorName.equals("default") || generatorName.equals("flat") ? null : generatorName)),
                     defaultEnv != null ? defaultEnv : World.Environment.NORMAL,
                     globalSeed,
                     !isVoid && globalGenerateStructures
@@ -407,9 +452,9 @@ public class WorldImportService {
             dims.put("minecraft:overworld", fallback);
         } else {
             DimensionGenInfo fallback = new DimensionGenInfo(
-                    isExplicitVoid ? WorldType.FLAT : WorldType.NORMAL,
-                    isExplicitVoid ? VoyageAPI.VANILLA_VOID_SETTINGS : null,
-                    isExplicitVoid ? "Voyage:void" : null,
+                    isExplicitVoid || generatorSettingsOverride != null ? WorldType.FLAT : WorldType.NORMAL,
+                    isExplicitVoid ? VoyageAPI.VANILLA_VOID_SETTINGS : generatorSettingsOverride,
+                    isExplicitVoid ? "Voyage:void" : generatorOverride,
                     defaultEnv != null ? defaultEnv : World.Environment.NORMAL,
                     0L,
                     !isExplicitVoid
@@ -453,7 +498,7 @@ public class WorldImportService {
         return switch (genType) {
             case "minecraft:flat" -> {
                 String settingsJson = serializeFlatSettingsToJson(genTag.get("settings"));
-                boolean isVoid = settingsJson != null && settingsJson.contains("the_void");
+                boolean isVoid = VoyageAPI.isVoidSettings(settingsJson);
                 boolean structures = !isVoid && fallbackStructures;
                 yield new DimensionGenInfo(WorldType.FLAT, isVoid ? VoyageAPI.VANILLA_VOID_SETTINGS : settingsJson, isVoid ? "Voyage:void" : null, env, fallbackSeed, structures);
             }
@@ -655,7 +700,7 @@ public class WorldImportService {
             Path wgsFile = dataMinecraftDir.resolve("world_gen_settings.dat");
 
             boolean isVoid = (genInfo.worldType() == WorldType.FLAT
-                    && genInfo.generatorSettingsJson() != null && genInfo.generatorSettingsJson().contains("the_void"))
+                    && VoyageAPI.isVoidSettings(genInfo.generatorSettingsJson()))
                     || VoyageAPI.isVoidGenerator(genInfo.generatorPluginName());
 
             CompoundBinaryTag.Builder genTag = CompoundBinaryTag.builder();
@@ -742,6 +787,8 @@ public class WorldImportService {
             if (isVoid) {
                 levelDataBuilder.putString("generatorName", "flat");
                 levelDataBuilder.putString("generatorOptions", "minecraft:air;minecraft:the_void");
+            } else if (genInfo.worldType() == WorldType.FLAT) {
+                levelDataBuilder.putString("generatorName", "flat");
             }
             if (!baseData.keySet().contains("version")) {
                 levelDataBuilder.putInt("version", 19133);
@@ -770,7 +817,10 @@ public class WorldImportService {
     }
 
     private CompoundBinaryTag extractBorderData(Path legacyDir) {
-        Path borderDat = legacyDir.resolve("data").resolve("world_border.dat");
+        Path borderDat = legacyDir.resolve("data").resolve("minecraft").resolve("world_border.dat");
+        if (!Files.isRegularFile(borderDat)) {
+            borderDat = legacyDir.resolve("data").resolve("world_border.dat");
+        }
         if (!Files.isRegularFile(borderDat)) return null;
         try {
             CompoundBinaryTag rawBorder = LevelDatNbt.read(borderDat);
@@ -836,14 +886,15 @@ public class WorldImportService {
             NamespacedKey key,
             DimensionGenInfo genInfo,
             @Nullable CompoundBinaryTag levelData,
-            @Nullable CompoundBinaryTag borderData
+            @Nullable CompoundBinaryTag borderData,
+            boolean autoLoad
     ) {
-        boolean isVoid = (genInfo.worldType() == WorldType.FLAT && genInfo.generatorSettingsJson() != null && genInfo.generatorSettingsJson().contains("the_void"))
+        boolean isVoid = (genInfo.worldType() == WorldType.FLAT && VoyageAPI.isVoidSettings(genInfo.generatorSettingsJson()))
                 || VoyageAPI.isVoidGenerator(genInfo.generatorPluginName());
 
         var builder = manager.builder(key)
                 .importExisting(true)
-                .autoLoad(true)
+                .autoLoad(autoLoad)
                 .seed(genInfo.seed())
                 .environment(genInfo.environment())
                 .type(isVoid ? WorldType.FLAT : genInfo.worldType())
@@ -861,16 +912,18 @@ public class WorldImportService {
             }
         }
 
-        return builder.create().thenApply(mw -> {
-            mw.getBukkitWorld().ifPresent(world -> {
-                try {
-                    applyLegacyDataToWorld((ManagedWorldImpl) mw, world, levelData, borderData);
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Partial failure applying legacy data to " + key.asString() + ": " + e.getMessage());
-                }
-            });
-            return mw;
-        });
+        return builder.create()
+                .thenCompose(mw -> mw.isLoaded() ? CompletableFuture.completedFuture(mw) : mw.load().thenApply(w -> mw))
+                .thenApply(mw -> {
+                    mw.getBukkitWorld().ifPresent(world -> {
+                        try {
+                            applyLegacyDataToWorld((ManagedWorldImpl) mw, world, levelData, borderData);
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Partial failure applying legacy data to " + key.asString() + ": " + e.getMessage());
+                        }
+                    });
+                    return mw;
+                });
     }
 
     private void applyLegacyDataToWorld(ManagedWorldImpl mw, World world, @Nullable CompoundBinaryTag levelData, @Nullable CompoundBinaryTag borderData) {
