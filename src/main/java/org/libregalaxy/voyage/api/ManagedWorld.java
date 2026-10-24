@@ -2,6 +2,7 @@ package org.libregalaxy.voyage.api;
 
 import org.bukkit.Difficulty;
 import org.bukkit.GameRule;
+import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.WorldType;
@@ -44,7 +45,7 @@ public interface ManagedWorld {
     CompletableFuture<Boolean> unload(boolean saveChunks);
     CompletableFuture<Boolean> unload(boolean saveChunks, World fallbackWorld);
 
-    // Metadata tagging for other plugins (persisted to worlds.yml)
+    // Metadata tagging for other plugins
     void setMetadata(@NotNull String key, @Nullable String value);
     void removeMetadata(@NotNull String key);
     Optional<String> getMetadata(@NotNull String key);
@@ -55,44 +56,32 @@ public interface ManagedWorld {
     void linkPortal(PortalType type, PortalLink link);
     void unlinkPortal(PortalType type);
 
-    // --- Runtime mutators (persisted to config) ---
+    // --- Runtime mutators ---
 
-    /**
-     * Sets the world's difficulty. If the world is currently loaded, the
-     * change is applied immediately (scheduled on the main thread if called
-     * asynchronously). The value is persisted to worlds.yml.
-     */
     void setDifficulty(Difficulty difficulty);
 
     /**
-     * Sets the world's spawn location. If the world is currently loaded, the
-     * change is applied immediately. The value is persisted to worlds.yml.
+     * Sets the world's spawn location with block coordinates.
      */
-    void setSpawn(int x, int y, int z);
+    default void setSpawn(int x, int y, int z) {
+        setSpawn(x, y, z, 0.0f, 0.0f);
+    }
 
     /**
-     * Sets a gamerule. If the world is currently loaded, the change is applied
-     * immediately. The value is persisted to worlds.yml.
+     * Sets the world's spawn location with block coordinates, yaw, and pitch.
      */
+    void setSpawn(int x, int y, int z, float yaw, float pitch);
+
+    default void setSpawn(@NotNull Location location) {
+        setSpawn(location.getBlockX(), location.getBlockY(), location.getBlockZ(), location.getYaw(), location.getPitch());
+    }
+
     <T> void setGameRule(GameRule<T> rule, T value);
-
-    /**
-     * Gets the configured value for a gamerule, or the world's current value
-     * if loaded, or {@code null} if not set and not loaded.
-     */
     <T> T getGameRule(GameRule<T> rule);
-
-    /**
-     * Returns an unmodifiable view of all explicitly configured gamerules.
-     */
     Map<GameRule<?>, Object> getGameRules();
 
-    /**
-     * Returns the spawn coordinates explicitly configured via the API or
-     * worlds.yml. Returns empty if no spawn override is set (the world will
-     * use its own default spawn).
-     */
     Optional<int[]> getConfiguredSpawn();
+    default Optional<float[]> getConfiguredSpawnAngles() { return Optional.empty(); }
 
     void setWorldType(@NotNull WorldType worldType);
     void setGeneratorSettings(@Nullable String generatorSettings);

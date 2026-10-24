@@ -7,15 +7,16 @@ import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 import me.itsmcb.vexelcore.bukkit.api.framework.FlagParser;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlag;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlags;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.VoyageAPI;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +27,7 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
     private final VexelArg<String> ACTION_ARG;
     private final VexelArg<NamespacedKey> WORLD_ARG;
     private final VexelArg<String> ARG3;
+    private final VexelFlags profileFlags;
     private final VexelArg<String> FLAGS_ARG;
 
     public ProfileLinkScmd(@NotNull VoyageContext context) {
@@ -61,10 +63,12 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
                 })
                 .build();
 
-        this.FLAGS_ARG = VexelArg.builder("flags", StringArgumentType.greedyString(), String.class, "Strategy and/or --dry-run flag")
-                .optional()
-                .suggests(List.of("SOURCE_PRIORITY", "DESTINATION_PRIORITY", "--dry-run", "SOURCE_PRIORITY --dry-run", "DESTINATION_PRIORITY --dry-run"))
+        this.profileFlags = VexelFlags.builder()
+                .flag(VexelFlag.valued("strategy", "Data merge conflict resolution", List.of("SOURCE_PRIORITY", "DESTINATION_PRIORITY")))
+                .flag(VexelFlag.booleanFlag("dry-run", "Preview data link changes without applying them"))
                 .build();
+
+        this.FLAGS_ARG = profileFlags.asArg("flags", "Merge strategy and/or --dry-run flag");
     }
 
     @Override public @NotNull List<VexelArg<?>> getArguments() { return List.of(ACTION_ARG, WORLD_ARG, ARG3, FLAGS_ARG); }
@@ -76,7 +80,7 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
         String arg3 = optionalArg(ctx, ARG3);
         String flagsInput = optionalArg(ctx, FLAGS_ARG);
 
-        // Fix: If arg3 starts with "--", it was passed as a flag, so shift it
+        // If arg3 starts with "--", it was passed as a flag, so shift it
         if (arg3 != null && arg3.startsWith("--")) {
             flagsInput = (flagsInput == null) ? arg3 : arg3 + " " + flagsInput;
             arg3 = null;
@@ -90,6 +94,8 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
             return;
         }
 
+        FlagParser flags = profileFlags.parse(flagsInput);
+
         if ("break".equals(action)) {
             String currentProfile = api.getWorldDataProfile(worldKey);
             if (currentProfile.startsWith("isolated:")) {
@@ -99,7 +105,6 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
 
             boolean cloneData = "true".equalsIgnoreCase(arg3);
 
-            FlagParser flags = new FlagParser(flagsInput);
             if (flags.hasFlag("dry-run")) {
                 String targetLabel = context.getPlayerDataManager().getDefaultProfileId(worldKey);
                 TextUtils.send(sender, "<dark_gray><st>          </st> <color:#e98df5>\ud83d\udcc4 Unlink Preview <white><current></white> \u2192 <white><target></white> \ud83d\udcc4</color> <st>          </st> </dark_gray>", Placeholder.unparsed("current", currentProfile), Placeholder.unparsed("target", targetLabel));
@@ -137,7 +142,6 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
                 return;
             }
 
-            // Resolve whether targetInput is an existing world or a group name
             String resolvedProfileId;
             NamespacedKey targetWorldKey = parseWorldKey(targetInput);
 
@@ -150,10 +154,8 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
                 if (targetWorldProfile.startsWith("group:")) {
                     resolvedProfileId = targetWorldProfile.substring(6);
                 } else {
-                    // targetWorld is currently isolated; put both worlds into a shared group named after targetWorld
                     String newGroupName = sanitizeGroupName(targetWorldKey.getKey());
                     resolvedProfileId = newGroupName;
-                    // Ensure the target world is added to the newly formed group first
                     api.setWorldDataProfile(targetWorldKey, newGroupName, VoyageAPI.DataLinkMergeStrategy.DESTINATION_PRIORITY);
                 }
             } else {
@@ -167,15 +169,19 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
                 }
             }
 
-            FlagParser flags = new FlagParser(flagsInput);
             boolean isDryRun = flags.hasFlag("dry-run");
             VoyageAPI.DataLinkMergeStrategy strategy = VoyageAPI.DataLinkMergeStrategy.DESTINATION_PRIORITY;
 
-            if (!flags.getPositionalArgs().isEmpty()) {
+            String strategyStr = flags.getValue("strategy").orElse(null);
+            if (strategyStr == null && !flags.getPositionalArgs().isEmpty()) {
+                strategyStr = flags.getPositionalArgs().get(0);
+            }
+
+            if (strategyStr != null) {
                 try {
-                    strategy = VoyageAPI.DataLinkMergeStrategy.valueOf(flags.getPositionalArgs().get(0).toUpperCase(Locale.ROOT));
+                    strategy = VoyageAPI.DataLinkMergeStrategy.valueOf(strategyStr.toUpperCase(Locale.ROOT));
                 } catch (IllegalArgumentException e) {
-                    TextUtils.send(sender, "<red>Invalid strategy: <strategy></red>", Placeholder.unparsed("strategy", flags.getPositionalArgs().get(0)));
+                    TextUtils.send(sender, "<red>Invalid strategy: <strategy></red>", Placeholder.unparsed("strategy", strategyStr));
                     return;
                 }
             }

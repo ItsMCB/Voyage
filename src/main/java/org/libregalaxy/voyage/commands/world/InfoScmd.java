@@ -6,6 +6,8 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import me.itsmcb.vexelcore.bukkit.api.framework.FlagParser;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlag;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlags;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -14,12 +16,12 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.World;
 import org.bukkit.command.CommandSender;
+import org.jetbrains.annotations.NotNull;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.ManagedWorld;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.api.portal.PortalType;
 import org.libregalaxy.voyage.core.VoyageWorldManager;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,33 +37,27 @@ import java.util.Optional;
 
 public class InfoScmd extends VexelSenderSubCommand<VoyageContext> {
 
+    private final VexelFlags infoFlags;
     private final VexelArg<String> INPUT_ARG;
 
     public InfoScmd(@NotNull VoyageContext context) {
         super(context, "info", "Shows information about the current or specified world.", "voyage.info");
+
+        this.infoFlags = VexelFlags.builder()
+                .flag(VexelFlag.valued("gamerule", "Specific GameRule to query", ctx -> {
+                    List<String> list = new ArrayList<>();
+                    for (GameRule<?> rule : Registry.GAME_RULE) {
+                        list.add(rule.getKey().value());
+                    }
+                    return list;
+                }))
+                .build();
+
         this.INPUT_ARG = VexelArg.builder("world_and_flags", StringArgumentType.greedyString(), String.class, "Target dimension and/or --gamerule flag")
                 .optional()
                 .suggestsContextual(ctx -> {
-                    List<String> options = new ArrayList<>();
-                    List<String> worlds = context.getWorldManager().getAllWorldNames();
-
-                    // 1. Suggest Worlds alone
-                    options.addAll(worlds);
-
-                    // 2. Suggest Global gamerule flag (assumes current world)
+                    List<String> options = new ArrayList<>(context.getWorldManager().getAllWorldNames());
                     options.add("--gamerule");
-                    for (GameRule<?> rule : Registry.GAME_RULE) {
-                        options.add("--gamerule " + rule.getKey());
-                    }
-
-                    // 3. Suggest World + gamerule flag
-                    for (String w : worlds) {
-                        options.add(w + " --gamerule");
-                        for (GameRule<?> rule : Registry.GAME_RULE) {
-                            options.add(w + " --gamerule " + rule.getKey());
-                        }
-                    }
-
                     return options;
                 })
                 .build();
@@ -72,7 +68,7 @@ public class InfoScmd extends VexelSenderSubCommand<VoyageContext> {
     @Override
     public void execute(@NotNull CommandContext<CommandSourceStack> ctx, @NotNull CommandSender sender) {
         String input = optionalArg(ctx, INPUT_ARG);
-        FlagParser flags = new FlagParser(input);
+        FlagParser flags = infoFlags.parse(input);
 
         NamespacedKey targetKey = null;
         String gameruleQuery = null;
@@ -208,7 +204,6 @@ public class InfoScmd extends VexelSenderSubCommand<VoyageContext> {
 
                 TextUtils.send(sender, "<dark_gray><st>          </st> <color:#e98df5>\ud83d\udcc4 World Info of <green><world></green> \ud83d\udcc4</color> <st>          </st> </dark_gray>", Placeholder.unparsed("world", worldKeyStr));
 
-                // Directly interpolate worldKeyStr into click:copy_to_clipboard to ensure clipboard receives the resolved world key
                 TextUtils.send(sender, " \u21aa <color:#e98df5>Namespace</color><dark_gray>:</dark_gray> <gray><hover:show_text:'<gray>Click to copy</gray>'><click:copy_to_clipboard:'" + worldKeyStr + "'>" + worldKeyStr + "</click></hover></gray>");
 
                 TextUtils.send(sender, " \u21aa <color:#e98df5>Status</color><dark_gray>:</dark_gray> <status>", Placeholder.parsed("status", finalStatus));
@@ -226,7 +221,6 @@ public class InfoScmd extends VexelSenderSubCommand<VoyageContext> {
                     TextUtils.send(sender, " \u21aa <color:#e98df5>Auto Load</color><dark_gray>:</dark_gray> <gray><val></gray>", Placeholder.unparsed("val", String.valueOf(mw.isAutoLoad())));
                     TextUtils.send(sender, " \u21aa <color:#e98df5>Temporary</color><dark_gray>:</dark_gray> <gray><val></gray>", Placeholder.unparsed("val", String.valueOf(mw.isTemporary())));
 
-                    // Allow clicking the seed to copy it
                     TextUtils.send(sender, " \u21aa <color:#e98df5>Seed</color><dark_gray>:</dark_gray> <gray><hover:show_text:'<gray>Click to copy seed</gray>'><click:copy_to_clipboard:'" + mw.getSeed() + "'>" + mw.getSeed() + "</click></hover></gray>");
 
                     TextUtils.send(sender, " \u21aa <color:#e98df5>Generator</color><dark_gray>:</dark_gray> <gray><val></gray>", Placeholder.unparsed("val", mw.getGenerator().orElse("Default")));

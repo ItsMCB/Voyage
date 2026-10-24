@@ -14,10 +14,10 @@ import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.ManagedWorld;
 import org.libregalaxy.voyage.api.VoyageAPI;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,7 +81,7 @@ public class TeleportScmd extends VexelPlayerSubCommand<VoyageContext> {
                 TextUtils.send(player, "<color:#e98df5>ℹ</color> <yellow>Loading dimension <white><world></white> and teleporting you to it...</yellow>", Placeholder.unparsed("world", key.asString()));
                 mw.get().load().thenAccept(loaded -> teleportTargets(player, targets, loaded, key, specifySpawn, api));
             } else {
-                TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Dimension <white><world></white> is not loaded or managed or Voyage.</red>", Placeholder.unparsed("world", key.asString()));
+                TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Dimension <white><world></white> is not loaded or managed by Voyage.</red>", Placeholder.unparsed("world", key.asString()));
             }
             return;
         }
@@ -91,25 +91,27 @@ public class TeleportScmd extends VexelPlayerSubCommand<VoyageContext> {
 
     private void teleportTargets(Player executor, List<Player> targets, World targetWorld, NamespacedKey requestKey, boolean specifySpawn, VoyageAPI api) {
         for (Player target : targets) {
-            Location loc = targetWorld.getSpawnLocation();
+            Location destination;
             boolean teleportedToLogOff = false;
+
             if (!specifySpawn) {
                 Optional<VoyageAPI.OfflineLocation> optLoc = api.getPlayerLogOffLocation(targetWorld.getKey(), target.getUniqueId());
-                if (optLoc.isPresent()) {
+                if (optLoc.isPresent() && optLoc.get().worldKey().equals(targetWorld.getKey())) {
                     VoyageAPI.OfflineLocation offLoc = optLoc.get();
-                    // Guarantee destination is strictly inside targetWorld
-                    if (offLoc.worldKey().equals(targetWorld.getKey())) {
-                        loc = new Location(targetWorld, offLoc.x(), offLoc.y(), offLoc.z(), offLoc.yaw(), offLoc.pitch());
-                        teleportedToLogOff = true;
-                    }
-                }
-                if (!teleportedToLogOff) {
+                    destination = new Location(targetWorld, offLoc.x(), offLoc.y(), offLoc.z(), offLoc.yaw(), offLoc.pitch());
+                    teleportedToLogOff = true;
+                } else {
+                    destination = resolveSpawnLocation(targetWorld, api);
                     TextUtils.send(executor, "<color:#e98df5>ℹ</color> <yellow>No log-off location found for <player> in <world>. Falling back to spawn point.</yellow>",
                             Placeholder.unparsed("player", target.getName()),
                             Placeholder.unparsed("world", targetWorld.getKey().asString()));
                 }
+            } else {
+                destination = resolveSpawnLocation(targetWorld, api);
             }
-            target.teleportAsync(loc);
+
+            target.teleportAsync(destination);
+
             if (teleportedToLogOff) {
                 TextUtils.send(executor, "<color:#e98df5>\uD83C\uDF00</color> <green>Teleported <player> to <white><world></white> at their last log-off location.</green>",
                         Placeholder.unparsed("player", target.getName()), Placeholder.unparsed("world", targetWorld.getKey().asString()));
@@ -118,5 +120,19 @@ public class TeleportScmd extends VexelPlayerSubCommand<VoyageContext> {
                         Placeholder.unparsed("player", target.getName()), Placeholder.unparsed("world", targetWorld.getKey().asString()));
             }
         }
+    }
+
+    private Location resolveSpawnLocation(World targetWorld, VoyageAPI api) {
+        Location spawn = targetWorld.getSpawnLocation().clone();
+        Optional<ManagedWorld> mwOpt = api.getManagedWorld(targetWorld.getKey());
+        if (mwOpt.isPresent()) {
+            Optional<float[]> anglesOpt = mwOpt.get().getConfiguredSpawnAngles();
+            if (anglesOpt.isPresent()) {
+                float[] angles = anglesOpt.get();
+                spawn.setYaw(angles[0]);
+                spawn.setPitch(angles[1]);
+            }
+        }
+        return spawn;
     }
 }

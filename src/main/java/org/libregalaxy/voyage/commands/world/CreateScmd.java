@@ -1,12 +1,13 @@
 package org.libregalaxy.voyage.commands.world;
 
-import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 import me.itsmcb.vexelcore.bukkit.api.framework.FlagParser;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlag;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlags;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelPlayerSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Difficulty;
@@ -16,12 +17,13 @@ import org.bukkit.Registry;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.api.builder.WorldBuilder;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -31,6 +33,7 @@ import java.util.Optional;
 public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
 
     private final VexelArg<NamespacedKey> KEY_ARG;
+    private final VexelFlags creationFlags;
     private final VexelArg<String> FLAGS_ARG;
 
     public CreateScmd(@NotNull VoyageContext context) {
@@ -38,35 +41,51 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
         this.KEY_ARG = VexelArg.builder("namespacedkey", ArgumentTypes.namespacedKey(), NamespacedKey.class, "Identifier for the new world (e.g., \"custom:lobby\")")
                 .build();
 
-        this.FLAGS_ARG = VexelArg.builder("flags", StringArgumentType.greedyString(), String.class,
-                        "Optional flags: --preset <name>, --environment <env>, --seed <seed>, --difficulty <diff>, --no-structures, --spawn <x> <y> <z>, --gamerule <name> <value>")
-                .optional()
-                .suggestsContextual(ctx -> {
-                    List<String> options = new ArrayList<>();
-                    options.add("--preset void");
-                    options.add("--preset flat");
-                    options.add("--preset amplified");
+        this.creationFlags = VexelFlags.builder()
+                .flag(VexelFlag.valued("preset", "World preset template", ctx -> {
+                    List<String> list = new ArrayList<>(List.of("void", "flat", "amplified"));
                     ConfigurationSection presets = context.getPlugin().getConfig().getConfigurationSection("presets");
                     if (presets != null) {
                         for (String key : presets.getKeys(false)) {
-                            String opt = "--preset " + key;
-                            if (!options.contains(opt)) options.add(opt);
+                            if (!list.contains(key)) list.add(key);
                         }
                     }
-                    options.add("--environment NORMAL");
-                    options.add("--environment NETHER");
-                    options.add("--environment THE_END");
-                    options.add("--seed");
-                    options.add("--difficulty PEACEFUL");
-                    options.add("--difficulty EASY");
-                    options.add("--difficulty NORMAL");
-                    options.add("--difficulty HARD");
-                    options.add("--no-structures");
-                    options.add("--spawn");
-                    options.add("--gamerule");
-                    return options;
-                })
+                    return list;
+                }).alias("p"))
+                .flag(VexelFlag.valued("environment", "Dimension environment", List.of("NORMAL", "NETHER", "THE_END"))
+                        .alias("e"))
+                .flag(VexelFlag.valued("seed", "World seed")
+                        .alias("s"))
+                .flag(VexelFlag.valued("difficulty", "Dimension difficulty", List.of("PEACEFUL", "EASY", "NORMAL", "HARD"))
+                        .alias("d"))
+                .flag(VexelFlag.booleanFlag("no-structures", "Disable structure generation"))
+                .flag(VexelFlag.multiValued("spawn", "Fixed spawn coordinates <x> <y> <z>", 3))
+                .flag(VexelFlag.multiValued("gamerule", "GameRule override <name> <value>", 2, (ctx, valueIndex, prev) -> {
+                    if (valueIndex == 0) {
+                        List<String> rules = new ArrayList<>();
+                        for (GameRule<?> r : Registry.GAME_RULE) {
+                            rules.add(r.getKey().value());
+                        }
+                        return rules;
+                    } else if (valueIndex == 1 && !prev.isEmpty()) {
+                        String ruleName = prev.get(0).toLowerCase(Locale.ROOT);
+                        String snakeCase = ruleName.replaceAll("([a-z])([A-Z]+)", "$1_$2");
+                        NamespacedKey ruleKey = NamespacedKey.fromString(snakeCase);
+                        GameRule<?> rule = ruleKey != null ? Registry.GAME_RULE.get(ruleKey) : null;
+                        if (rule != null) {
+                            if (rule.getType() == Boolean.class) {
+                                return List.of("true", "false");
+                            } else if (rule.getType() == Integer.class) {
+                                return List.of("0", "1", "3", "5");
+                            }
+                        }
+                    }
+                    return Collections.emptyList();
+                }).alias("g").repeatable())
                 .build();
+
+        this.FLAGS_ARG = creationFlags.asArg("flags",
+                "Optional flags: --preset <name>, --environment <env>, --seed <seed>, --difficulty <diff>, --no-structures, --spawn <x> <y> <z>, --gamerule <name> <value>");
     }
 
     @Override public @NotNull List<VexelArg<?>> getArguments() { return List.of(KEY_ARG, FLAGS_ARG); }
@@ -77,7 +96,7 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
         String flagsInput = optionalArg(ctx, FLAGS_ARG);
         VoyageAPI api = context.getWorldManager();
 
-        FlagParser flags = new FlagParser(flagsInput);
+        FlagParser flags = creationFlags.parse(flagsInput);
 
         World.Environment env = null;
         String seedStr = null;
@@ -86,10 +105,10 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
         int[] spawn = null;
         Map<String, String> gameruleStrings = new LinkedHashMap<>();
 
-        Optional<String> presetOpt = flags.getValue("preset").or(() -> flags.getValue("p"));
+        Optional<String> presetOpt = flags.getValue("preset");
         String presetName = presetOpt.orElse(null);
 
-        Optional<String> envOpt = flags.getValue("environment").or(() -> flags.getValue("e"));
+        Optional<String> envOpt = flags.getValue("environment");
         if (envOpt.isPresent()) {
             String envStr = envOpt.get().toUpperCase(Locale.ROOT);
             try {
@@ -100,12 +119,12 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
             }
         }
 
-        Optional<String> seedOpt = flags.getValue("seed").or(() -> flags.getValue("s"));
+        Optional<String> seedOpt = flags.getValue("seed");
         if (seedOpt.isPresent()) {
             seedStr = seedOpt.get();
         }
 
-        Optional<String> diffOpt = flags.getValue("difficulty").or(() -> flags.getValue("d"));
+        Optional<String> diffOpt = flags.getValue("difficulty");
         if (diffOpt.isPresent()) {
             String diffStr = diffOpt.get().toUpperCase(Locale.ROOT);
             try {
@@ -137,7 +156,6 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
         }
 
         List<String> gameruleValues = flags.getValues("gamerule");
-        gameruleValues.addAll(flags.getValues("g"));
         if (!gameruleValues.isEmpty()) {
             if (gameruleValues.size() % 2 != 0) {
                 TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Missing value for --gamerule flag. Usage: --gamerule <name> <value></red>");

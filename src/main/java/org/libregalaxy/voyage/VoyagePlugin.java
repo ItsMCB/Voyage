@@ -13,14 +13,15 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.api.VoyageAPI;
+import org.libregalaxy.voyage.commands.voyage.VoyageCmd;
+import org.libregalaxy.voyage.commands.world.WorldCmd;
 import org.libregalaxy.voyage.core.PlayerDataManager;
 import org.libregalaxy.voyage.core.PlayerStateSerializer;
 import org.libregalaxy.voyage.core.VoyageWorldListener;
 import org.libregalaxy.voyage.core.VoyageWorldManager;
 import org.libregalaxy.voyage.core.WebhookService;
+import org.libregalaxy.voyage.core.database.VoyageDatabaseService;
 import org.libregalaxy.voyage.listeners.VoyagePortalListener;
-import org.libregalaxy.voyage.commands.voyage.VoyageCmd;
-import org.libregalaxy.voyage.commands.world.WorldCmd;
 
 import java.util.List;
 import java.util.Random;
@@ -37,6 +38,10 @@ public final class VoyagePlugin extends JavaPlugin {
         saveDefaultConfig();
 
         this.context = new VoyageContext(this);
+
+        // 1. Initialize embedded SQLite database engine
+        VoyageDatabaseService databaseService = new VoyageDatabaseService(context);
+        context.registerService(databaseService);
 
         WebhookService webhookService = new WebhookService(context);
         context.registerService(webhookService);
@@ -70,9 +75,10 @@ public final class VoyagePlugin extends JavaPlugin {
 
         PlayerDataManager playerDataManager = context.getPlayerDataManager();
         VoyageWorldManager worldManager = context.getWorldManager();
+        VoyageDatabaseService databaseService = context.getDatabaseService();
 
+        // STEP 1: Synchronously capture and write all connected player states
         if (playerDataManager != null) {
-            // STEP 1: Synchronously capture and write all connected players while services are active
             for (Player p : getServer().getOnlinePlayers()) {
                 try {
                     playerDataManager.savePlayerStateSync(p);
@@ -81,7 +87,6 @@ public final class VoyagePlugin extends JavaPlugin {
                 }
             }
 
-            // STEP 2: Flush and terminate the background writer
             try {
                 playerDataManager.shutdown();
             } catch (Exception e) {
@@ -89,11 +94,21 @@ public final class VoyagePlugin extends JavaPlugin {
             }
         }
 
+        // STEP 2: Gracefully shutdown the World Manager and eviction tasks
         if (worldManager != null) {
             try {
                 worldManager.shutdown();
             } catch (Exception e) {
                 getLogger().severe("Failed to gracefully shutdown VoyageWorldManager: " + e.getMessage());
+            }
+        }
+
+        // STEP 3: Checkpoint and close database connection pool
+        if (databaseService != null) {
+            try {
+                databaseService.shutdown();
+            } catch (Exception e) {
+                getLogger().severe("Failed to close Voyage database: " + e.getMessage());
             }
         }
     }
@@ -112,59 +127,37 @@ public final class VoyagePlugin extends JavaPlugin {
      */
     public static class VanillaVoidChunkGenerator extends ChunkGenerator {
         @Override
-        public void generateNoise(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {
-            // Pure void: generate no noise blocks
-        }
+        public void generateNoise(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {}
 
         @Override
-        public void generateSurface(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {
-            // Pure void: generate no surface blocks
-        }
+        public void generateSurface(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {}
 
         @Override
-        public void generateBedrock(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {
-            // Pure void: generate no bedrock
-        }
+        public void generateBedrock(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {}
 
         @Override
-        public void generateCaves(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {
-            // Pure void: generate no caves
-        }
+        public void generateCaves(@NotNull WorldInfo worldInfo, @NotNull Random random, int chunkX, int chunkZ, @NotNull ChunkData chunkData) {}
 
         @Override
-        public boolean shouldGenerateNoise() {
-            return false;
-        }
+        public boolean shouldGenerateNoise() { return false; }
 
         @Override
-        public boolean shouldGenerateSurface() {
-            return false;
-        }
+        public boolean shouldGenerateSurface() { return false; }
 
         @Override
-        public boolean shouldGenerateBedrock() {
-            return false;
-        }
+        public boolean shouldGenerateBedrock() { return false; }
 
         @Override
-        public boolean shouldGenerateCaves() {
-            return false;
-        }
+        public boolean shouldGenerateCaves() { return false; }
 
         @Override
-        public boolean shouldGenerateDecorations() {
-            return false;
-        }
+        public boolean shouldGenerateDecorations() { return false; }
 
         @Override
-        public boolean shouldGenerateMobs() {
-            return false;
-        }
+        public boolean shouldGenerateMobs() { return false; }
 
         @Override
-        public boolean shouldGenerateStructures() {
-            return false;
-        }
+        public boolean shouldGenerateStructures() { return false; }
 
         @Override
         public int getBaseHeight(@NotNull WorldInfo worldInfo, @NotNull Random random, int x, int z, @NotNull HeightMap heightMap) {
@@ -172,9 +165,7 @@ public final class VoyagePlugin extends JavaPlugin {
         }
 
         @Override
-        public boolean canSpawn(@NotNull World world, int x, int z) {
-            return true;
-        }
+        public boolean canSpawn(@NotNull World world, int x, int z) { return true; }
 
         @Override
         public @Nullable BiomeProvider getDefaultBiomeProvider(@NotNull WorldInfo worldInfo) {

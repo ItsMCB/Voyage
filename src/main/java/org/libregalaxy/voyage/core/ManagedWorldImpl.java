@@ -39,6 +39,7 @@ public class ManagedWorldImpl implements ManagedWorld {
 
     private @NotNull Difficulty difficulty = Difficulty.NORMAL;
     private @Nullable int[] spawn;
+    private @Nullable float[] spawnAngle;
     private final Map<GameRule<?>, Object> gameRules = new ConcurrentHashMap<>();
 
     private final Map<String, String> metadata = new ConcurrentHashMap<>();
@@ -111,12 +112,12 @@ public class ManagedWorldImpl implements ManagedWorld {
 
     public void setAutoLoad(boolean autoLoad) {
         this.autoLoad = autoLoad;
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
-    public void clearLinks()                  { this.portalLinks.clear(); }
+    public void clearLinks() { this.portalLinks.clear(); }
 
-    @Override public boolean isLoaded()                          { return getBukkitWorld().isPresent(); }
+    @Override public boolean isLoaded() { return getBukkitWorld().isPresent(); }
     @Override public @NotNull Optional<World> getBukkitWorld() { return Optional.ofNullable(Bukkit.getWorld(key)); }
 
     @Override
@@ -193,13 +194,13 @@ public class ManagedWorldImpl implements ManagedWorld {
         } else {
             metadata.put(key, value);
         }
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @Override
     public void removeMetadata(@NotNull String key) {
         metadata.remove(key);
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @Override
@@ -225,13 +226,13 @@ public class ManagedWorldImpl implements ManagedWorld {
     @Override
     public void linkPortal(@NotNull PortalType type, @NotNull PortalLink link) {
         portalLinks.put(type, link);
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @Override
     public void unlinkPortal(@NotNull PortalType type) {
         portalLinks.remove(type);
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @Override
@@ -242,14 +243,15 @@ public class ManagedWorldImpl implements ManagedWorld {
                 world.setDifficulty(difficulty);
             }
         }));
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @Override
-    public void setSpawn(int x, int y, int z) {
+    public void setSpawn(int x, int y, int z, float yaw, float pitch) {
         this.spawn = new int[]{x, y, z};
-        getBukkitWorld().ifPresent(world -> runOnMain(() -> world.setSpawnLocation(x, y, z)));
-        manager.saveState();
+        this.spawnAngle = new float[]{yaw, pitch};
+        getBukkitWorld().ifPresent(world -> runOnMain(() -> world.setSpawnLocation(x, y, z, yaw)));
+        manager.saveWorld(this);
     }
 
     @Override
@@ -260,14 +262,13 @@ public class ManagedWorldImpl implements ManagedWorld {
             gameRules.put(rule, value);
             getBukkitWorld().ifPresent(world -> runOnMain(() -> {
                 try {
-                    // Only apply to Bukkit world if the value actually changed
                     if (!Objects.equals(world.getGameRuleValue(rule), value)) {
                         world.setGameRule(rule, value);
                     }
                 } catch (Exception ignored) {}
             }));
         }
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @SuppressWarnings("unchecked")
@@ -291,12 +292,21 @@ public class ManagedWorldImpl implements ManagedWorld {
         return Optional.ofNullable(spawn).map(int[]::clone);
     }
 
+    @Override
+    public @NotNull Optional<float[]> getConfiguredSpawnAngles() {
+        return Optional.ofNullable(spawnAngle).map(float[]::clone);
+    }
+
     public void setDifficultyInternal(@NotNull Difficulty difficulty) {
         this.difficulty = difficulty;
     }
 
     void setSpawnInternal(@Nullable int[] spawn) {
         this.spawn = spawn != null ? spawn.clone() : null;
+    }
+
+    void setSpawnAngleInternal(@Nullable float[] angle) {
+        this.spawnAngle = angle != null ? angle.clone() : null;
     }
 
     void setGameRulesInternal(@NotNull Map<GameRule<?>, Object> rules) {
@@ -310,6 +320,10 @@ public class ManagedWorldImpl implements ManagedWorld {
 
     @Nullable int[] getSpawnOverride() {
         return spawn != null ? spawn.clone() : null;
+    }
+
+    @Nullable float[] getSpawnAngleOverride() {
+        return spawnAngle != null ? spawnAngle.clone() : null;
     }
 
     @SuppressWarnings("unchecked")
@@ -339,7 +353,7 @@ public class ManagedWorldImpl implements ManagedWorld {
     @Override
     public void setWorldType(@NotNull WorldType worldType) {
         this.worldType = worldType;
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @Override
@@ -352,7 +366,7 @@ public class ManagedWorldImpl implements ManagedWorld {
         } else {
             this.generatorSettings = generatorSettings;
         }
-        manager.saveState();
+        manager.saveWorld(this);
     }
 
     @Override
@@ -365,6 +379,6 @@ public class ManagedWorldImpl implements ManagedWorld {
         } else {
             this.generator = generator;
         }
-        manager.saveState();
+        manager.saveWorld(this);
     }
 }

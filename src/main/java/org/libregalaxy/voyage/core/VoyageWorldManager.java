@@ -19,6 +19,7 @@ import org.libregalaxy.voyage.api.events.VoyageWorldCloneEvent;
 import org.libregalaxy.voyage.api.events.VoyageWorldDeleteEvent;
 import org.libregalaxy.voyage.api.events.VoyageWorldDeletedEvent;
 import org.libregalaxy.voyage.api.portal.PortalType;
+import org.libregalaxy.voyage.core.database.VoyageDatabaseService;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,33 +45,50 @@ public class VoyageWorldManager implements VoyageAPI {
     private final WorldImportService importService;
     private final WorldDiskScanner diskScanner;
     private final WorldDirectoryWatcher directoryWatcher;
+    private final WorldEvictionController evictionController;
 
     public VoyageWorldManager(@NotNull VoyageContext context) {
         this.context = context;
-        this.plugin  = context.getPlugin();
+        this.plugin = context.getPlugin();
 
         this.fileService = new WorldFileService(plugin);
-        this.configService = new WorldConfigService(plugin, this);
         this.exportService = new WorldExportService(context, this, fileService);
         this.diskScanner = new WorldDiskScanner(plugin, this);
         this.importService = new WorldImportService(plugin, this);
 
         diskScanner.purgeOrphanedTempWorlds();
-        configService.loadState(false);
 
+        // 1. Initialize SQLite World Configuration Service (replaces worlds.yml)
+        VoyageDatabaseService databaseService = VoyageDatabaseService.resolve(context);
+        this.configService = new WorldConfigService(plugin, this, databaseService);
+
+        // 2. High-performance, zero-I/O Directory Watcher
         this.directoryWatcher = new WorldDirectoryWatcher(plugin, this);
         this.directoryWatcher.start();
+
+        // 3. Mount World Eviction Engine to manage RAM at 1,000+ worlds
+        this.evictionController = new WorldEvictionController(context, this);
+        this.evictionController.start();
+
+        try {
+            if (Bukkit.getPluginManager() != null) {
+                Bukkit.getPluginManager().registerEvents(evictionController, plugin);
+            }
+        } catch (Throwable ignored) {}
     }
 
     public void reload() {
         configService.reload();
         if (directoryWatcher != null) {
-            directoryWatcher.populateInitialCache();
+            directoryWatcher.scanDiskAsync();
         }
         context.getPlayerDataManager().invalidateProfileCache();
     }
 
     public void shutdown() {
+        if (evictionController != null) {
+            evictionController.stop();
+        }
         if (directoryWatcher != null) {
             directoryWatcher.stop();
         }
@@ -88,11 +106,17 @@ public class VoyageWorldManager implements VoyageAPI {
 
     public void unregisterWorld(@NotNull NamespacedKey key) {
         registry.remove(key);
-        saveState();
+        configService.deleteWorld(key);
+    }
+
+    public void saveWorld(@NotNull ManagedWorldImpl mw) {
+        configService.saveWorldAsync(mw);
     }
 
     protected void saveState() {
-        configService.saveState();
+        for (ManagedWorldImpl mw : registry.values()) {
+            configService.saveWorldAsync(mw);
+        }
     }
 
     @NotNull
@@ -119,7 +143,7 @@ public class VoyageWorldManager implements VoyageAPI {
 
     @Override
     public boolean worldExists(@NotNull NamespacedKey key) {
-        if (Bukkit.getWorld(key) != null) return true;
+        if (Bukkit.getWorld(key) != null || registry.containsKey(key)) return true;
 
         if (key.equals(NamespacedKey.minecraft("overworld"))) {
             Path levelDir = Bukkit.getServer().getLevelDirectory();
@@ -141,7 +165,7 @@ public class VoyageWorldManager implements VoyageAPI {
 
     @Override
     public @NotNull Set<NamespacedKey> getAllWorlds() {
-        Set<NamespacedKey> all = new HashSet<>();
+        Set<NamespacedKey> all = new HashSet<>(registry.keySet());
         for (World w : Bukkit.getWorlds()) all.add(w.getKey());
 
         Path dimsDir = Bukkit.getServer().getLevelDirectory().resolve("dimensions");
@@ -168,7 +192,7 @@ public class VoyageWorldManager implements VoyageAPI {
     }
 
     @Override public @NotNull Optional<ManagedWorld> getManagedWorld(@NotNull NamespacedKey key) { return Optional.ofNullable(registry.get(key)); }
-    @Override public @NotNull List<ManagedWorld> getTrackedWorlds()  { return List.copyOf(registry.values()); }
+    @Override public @NotNull List<ManagedWorld> getTrackedWorlds() { return List.copyOf(registry.values()); }
 
     @Override public @NotNull List<ManagedWorld> getLoadedWorlds() {
         return registry.values().stream()
@@ -177,8 +201,8 @@ public class VoyageWorldManager implements VoyageAPI {
                 .collect(Collectors.toList());
     }
 
-    @Override public List<String> getTrackedWorldNames()        { return registry.values().stream().map(mw -> mw.getKey().asString()).toList(); }
-    @Override public List<String> getLoadedTrackedWorldNames()  { return registry.values().stream().filter(ManagedWorld::isLoaded).map(mw -> mw.getKey().asString()).toList(); }
+    @Override public List<String> getTrackedWorldNames() { return registry.values().stream().map(mw -> mw.getKey().asString()).toList(); }
+    @Override public List<String> getLoadedTrackedWorldNames() { return registry.values().stream().filter(ManagedWorld::isLoaded).map(mw -> mw.getKey().asString()).toList(); }
     @Override public List<String> getOfflineTrackedWorldNames() { return registry.values().stream().filter(mw -> !mw.isLoaded()).map(mw -> mw.getKey().asString()).toList(); }
 
     @Override
@@ -229,17 +253,6 @@ public class VoyageWorldManager implements VoyageAPI {
         return context.getService(PlayerDataManager.class).removeWorldDataLink(worldKey, cloneData, progress);
     }
 
-    /**
-     * Retrieves the last physical location where the player logged off within the
-     * given world's profile group.
-     *
-     * <p>This method is defensive against environments where the
-     * {@link PlayerDataManager} service has not been registered yet (e.g., during
-     * early plugin initialization or in unit tests that exercise the world manager
-     * in isolation). When the service is unavailable, {@link Optional#empty()} is
-     * returned so callers can fall back to the world's spawn location instead of
-     * throwing an {@link NullPointerException}.
-     */
     @Override
     public Optional<OfflineLocation> getPlayerLogOffLocation(@NotNull NamespacedKey worldKey, java.util.UUID playerUuid) {
         PlayerDataManager playerDataManager = context.getService(PlayerDataManager.class);
@@ -455,11 +468,11 @@ public class VoyageWorldManager implements VoyageAPI {
             }
         }
 
-        saveState();
+        configService.deleteWorld(key);
         context.getService(PlayerDataManager.class).deleteWorldData(key);
 
         if (directoryWatcher != null) {
-            directoryWatcher.getUnmanagedCache().remove(key.asString());
+            directoryWatcher.removeUnmanaged(key.asString());
         }
 
         Runnable fireEvent = () -> Bukkit.getPluginManager().callEvent(new VoyageWorldDeletedEvent(key));
@@ -481,9 +494,9 @@ public class VoyageWorldManager implements VoyageAPI {
             }
 
             registry.remove(key);
-            saveState();
+            configService.deleteWorld(key);
             if (directoryWatcher != null) {
-                directoryWatcher.getUnmanagedCache().add(key.asString());
+                directoryWatcher.addUnmanaged(key.asString());
             }
 
             context.getService(PlayerDataManager.class).removeWorldFromGroups(key);
@@ -505,9 +518,9 @@ public class VoyageWorldManager implements VoyageAPI {
 
     boolean registerNewWorld(@NotNull ManagedWorldImpl world) {
         if (registry.putIfAbsent(world.getKey(), world) != null) return false;
-        saveState();
+        configService.saveWorldAsync(world);
         if (directoryWatcher != null) {
-            directoryWatcher.getUnmanagedCache().remove(world.getKey().asString());
+            directoryWatcher.removeUnmanaged(world.getKey().asString());
         }
         return true;
     }

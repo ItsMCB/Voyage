@@ -45,28 +45,29 @@ public class WorldFileService {
             return Bukkit.getServer().getLevelDirectory().toFile();
         }
 
+        // Canonical Paper 26.x dimension location: ./world/dimensions/<namespace>/<key>
+        File modernCanonical = Bukkit.getServer().getLevelDirectory()
+                .resolve("dimensions")
+                .resolve(key.getNamespace())
+                .resolve(key.getKey())
+                .toFile();
+
+        if (hasRegionData(modernCanonical)) {
+            return modernCanonical;
+        }
+
         List<File> candidates = new ArrayList<>();
         if (loaded != null) {
             candidates.add(loaded.getWorldFolder());
         }
+        candidates.add(modernCanonical);
 
-        // 1. levelDirectory/dimensions/<namespace>/<key>
-        candidates.add(Bukkit.getServer().getLevelDirectory()
-                .resolve("dimensions")
-                .resolve(key.getNamespace())
-                .resolve(key.getKey())
-                .toFile());
-
-        // 2. worldContainer/dimensions/<namespace>/<key>
+        // Legacy / fallback paths
         candidates.add(new File(Bukkit.getWorldContainer(), "dimensions" + File.separator + key.getNamespace() + File.separator + key.getKey()));
-
-        // 3. worldContainer/<key>
         candidates.add(new File(Bukkit.getWorldContainer(), key.getKey()));
-
-        // 4. worldContainer/<namespace>_<key>
         candidates.add(new File(Bukkit.getWorldContainer(), key.getNamespace() + "_" + key.getKey()));
 
-        // Prioritize the candidate folder that actually contains .mca region chunk files!
+        // Prioritize the candidate folder that actually contains .mca region chunk files
         for (File candidate : candidates) {
             if (hasRegionData(candidate)) {
                 return candidate;
@@ -80,7 +81,9 @@ public class WorldFileService {
             }
         }
 
-        return candidates.get(1); // default to candidate 1
+        // CRITICAL FIX FOR WORLD CLONING:
+        // Always default to modernCanonical (./world/dimensions/<ns>/<key>) so Paper loads the copied chunks!
+        return modernCanonical;
     }
 
     public void copyDirectory(@NotNull File source, @NotNull File target) throws IOException {

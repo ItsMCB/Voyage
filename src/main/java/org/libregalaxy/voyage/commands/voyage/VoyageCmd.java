@@ -2,8 +2,8 @@ package org.libregalaxy.voyage.commands.voyage;
 
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelCommandNode;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelRootCommand;
-import org.libregalaxy.voyage.VoyageContext;
 import org.jetbrains.annotations.NotNull;
+import org.libregalaxy.voyage.VoyageContext;
 
 import java.util.List;
 
@@ -15,6 +15,10 @@ public class VoyageCmd extends VexelRootCommand<VoyageContext> {
 
     @Override
     public @NotNull List<VexelCommandNode> getChildren() {
-        return List.of(new ReloadScmd(context));
+        return List.of(
+                new ReloadScmd(context),
+                new BackupScmd(context),
+                new ResetDbScmd(context)
+        );
     }
 }

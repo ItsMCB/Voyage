@@ -12,19 +12,17 @@ class VoyagePluginLoader implements PluginLoader {
     @Override
     public void classloader(final PluginClasspathBuilder builder) {
         final MavenLibraryResolver maven = new MavenLibraryResolver();
-        // Configure Paper's default mirror (using the direct repo is against their TOS)
+        // Configure Paper's default mirror (using direct central is against their TOS)
         maven.addRepository(new RemoteRepository.Builder("maven-central", "default", MavenLibraryResolver.MAVEN_CENTRAL_DEFAULT_MIRROR).build());
-        // Runtime dependencies
-        maven.addDependency(new Dependency(new DefaultArtifact("dev.dejvokep:boosted-yaml-spigot:1.5"), null));
-        maven.addDependency(new Dependency(new DefaultArtifact("dev.dejvokep:boosted-yaml:1.3.7"), null));
 
-        //maven.addRepository(new RemoteRepository.Builder("codemc", "default", "https://repo.codemc.org/repository/maven-public/").build());
-        //maven.addDependency(new Dependency(new DefaultArtifact("de.tr7zw:item-nbt-api:2.12.4"), null));
+        // Runtime dependencies
         maven.addDependency(new Dependency(new DefaultArtifact("net.kyori:adventure-nbt:5.1.1"), null));
 
+        // High-performance embedded SQLite and connection pooling
+        maven.addDependency(new Dependency(new DefaultArtifact("org.xerial:sqlite-jdbc:3.49.1.0"), null));
+        maven.addDependency(new Dependency(new DefaultArtifact("com.zaxxer:HikariCP:6.2.1"), null));
 
-        // Remember: DO NOT add plugin dependencies here; they go in the paper-plugin.yml server dependencies section. Add non-plugin dependencies here, like MariaDB.
-
+        // Remember: DO NOT add plugin dependencies here; they go in the paper-plugin.yml server dependencies section.
         builder.addLibrary(maven);
     }
 }

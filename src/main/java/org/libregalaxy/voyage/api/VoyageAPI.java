@@ -23,15 +23,9 @@ import java.util.concurrent.CompletableFuture;
 
 public interface VoyageAPI {
 
-    /**
-     * Canonical vanilla flat-world NBT settings producing 100% void chunk generation.
-     */
     String VANILLA_VOID_SETTINGS =
             "{\"layers\":[{\"block\":\"minecraft:air\",\"height\":1}],\"biome\":\"minecraft:the_void\",\"features\":false,\"lakes\":false}";
 
-    /**
-     * Checks if a generator string represents a void generator (e.g., "void", "voyage:void", "the_void").
-     */
     static boolean isVoidGenerator(@Nullable String generator) {
         if (generator == null || generator.isBlank()) return false;
         String norm = generator.trim().toLowerCase(Locale.ROOT);
@@ -41,12 +35,6 @@ public interface VoyageAPI {
                 || norm.equals("minecraft:the_void");
     }
 
-    /**
-     * Checks if generator settings JSON (or legacy flat string) specifies a pure void world
-     * (i.e. uses the_void biome AND has no non-air block layers).
-     * Superflat worlds that use minecraft:the_void biome alongside actual solid/fluid block
-     * layers return false so their layers and builds are preserved.
-     */
     static boolean isVoidSettings(@Nullable String generatorSettings) {
         if (generatorSettings == null || !generatorSettings.contains("the_void")) {
             return false;
@@ -79,7 +67,6 @@ public interface VoyageAPI {
                 return trimmed.equals(VANILLA_VOID_SETTINGS);
             }
         }
-        // Legacy flat string format: e.g., "minecraft:air;minecraft:the_void"
         String[] parts = trimmed.split(";");
         String layersPart = parts.length >= 3 ? parts[1] : parts[0];
         for (String layerStr : layersPart.split(",")) {
@@ -101,32 +88,15 @@ public interface VoyageAPI {
         return true;
     }
 
-    /**
-     * Checks if a world configuration represents a void world based on generator or generator settings.
-     */
     static boolean isVoidWorld(@Nullable String generator, @Nullable String generatorSettings) {
         return isVoidGenerator(generator) || isVoidSettings(generatorSettings);
     }
 
-    /**
-     * Checks if a world configuration represents a void world based on template ID, generator, or generator settings.
-     */
     static boolean isVoidWorld(@Nullable String templateId, @Nullable String generator, @Nullable String generatorSettings) {
         if (templateId != null && templateId.equalsIgnoreCase("void")) return true;
         return isVoidWorld(generator, generatorSettings);
     }
 
-    /**
-     * Resolves a safe location by checking for solid block obstruction and mid-air drops.
-     * If the location is inside solid blocks, scans upward up to 64 blocks for safe clearance.
-     * If in mid-air, searches downward up to 32 blocks for solid ground.
-     * If in pure void, ensures a bedrock block beneath the location if called on the primary thread.
-     *
-     * <p>This method is defensive against worlds (e.g., mocks or partially-initialized
-     * environments) that return {@code null} from {@link World#getBlockAt(int, int, int)}
-     * or {@link Block#getType()}. When block inspection is not possible, the input
-     * location is returned unchanged so callers can still proceed with evacuation.
-     */
     static @NotNull Location getSafeLocation(@NotNull Location location) {
         World world = location.getWorld();
         if (world == null) return location;
@@ -144,7 +114,6 @@ public interface VoyageAPI {
         Material headMaterial = headBlock.getType();
         if (feetMaterial == null || headMaterial == null) return safe;
 
-        // If inside solid blocks, scan upward for safe clearance
         if (feetMaterial.isSolid() || headMaterial.isSolid()) {
             for (int dy = 1; dy <= 64; dy++) {
                 int testY = by + dy;
@@ -161,7 +130,6 @@ public interface VoyageAPI {
                 }
             }
         } else {
-            // If in mid-air, search downwards up to 32 blocks for solid ground
             int minCheckY = Math.max(world.getMinHeight(), by - 32);
             boolean foundGround = false;
             for (int testY = by - 1; testY >= minCheckY; testY--) {
@@ -175,7 +143,6 @@ public interface VoyageAPI {
                     break;
                 }
             }
-            // If in pure void, ensure a bedrock block beneath the player's feet
             if (!foundGround) {
                 Block below = world.getBlockAt(safe.getBlockX(), safe.getBlockY() - 1, safe.getBlockZ());
                 if (below != null) {
@@ -190,20 +157,9 @@ public interface VoyageAPI {
         return safe;
     }
 
-    /**
-     * Resolves the safe spawn location for a world, centering on the block (+0.5, +0.5)
-     * and ensuring safe clearance above solid ground.
-     *
-     * <p>If the world reports a {@code null} spawn location (e.g., a mock world in
-     * tests), a sensible default location centered on the origin is synthesized so
-     * that evacuation callers can still receive a non-null {@link Location}.
-     */
     static @NotNull Location getSafeSpawnLocation(@NotNull World world) {
         Location spawn = world.getSpawnLocation();
         if (spawn == null) {
-            // Defensive fallback for worlds that cannot report a spawn location
-            // (e.g., mocked worlds in unit tests, or partially-initialized worlds).
-            // Center on the block at the origin so the returned Location is always valid.
             return new Location(world, 0.5, 64.0, 0.5);
         }
         spawn = spawn.clone();
@@ -225,7 +181,6 @@ public interface VoyageAPI {
     List<String> getOfflineTrackedWorldNames();
     List<String> getLoadedWorldNames();
 
-    // Powered by a real-time memory cache. Safe for Brigadier suggestions.
     List<String> getAllWorldNames();
 
     WorldBuilder builder(NamespacedKey key);
@@ -233,18 +188,6 @@ public interface VoyageAPI {
     CompletableFuture<Boolean> deleteWorld(NamespacedKey key, NamespacedKey fallbackWorld);
     CompletableFuture<Void> untrackWorld(NamespacedKey key);
 
-    /**
-     * Clones an existing managed world into a new target dimension.
-     * Unloads the source world safely (if loaded) to ensure chunk consistency,
-     * copies dimension files and configurations, duplicates gamerules, spawn,
-     * metadata, and optionally clones player profile data before remounting.
-     *
-     * @param sourceKey        The NamespacedKey of the source dimension to clone.
-     * @param targetKey        The NamespacedKey for the cloned dimension.
-     * @param clonePlayerData  Whether to clone isolated player data profiles to the target dimension.
-     * @param progress         Optional progress consumer for data cloning.
-     * @return CompletableFuture resolving to the cloned ManagedWorld instance.
-     */
     CompletableFuture<ManagedWorld> cloneWorld(@NotNull NamespacedKey sourceKey, @NotNull NamespacedKey targetKey, boolean clonePlayerData, @Nullable java.util.function.DoubleConsumer progress);
 
     default CompletableFuture<ManagedWorld> cloneWorld(@NotNull NamespacedKey sourceKey, @NotNull NamespacedKey targetKey, boolean clonePlayerData) {
@@ -255,23 +198,12 @@ public interface VoyageAPI {
         return cloneWorld(sourceKey, targetKey, true, null);
     }
 
-    /**
-     * Clones the isolated player data profile from a source world to a target world.
-     *
-     * @param sourceKey The source dimension key.
-     * @param targetKey The target dimension key.
-     * @param progress  Optional progress callback (0.0 to 1.0).
-     * @return CompletableFuture tracking the data cloning operation.
-     */
     CompletableFuture<Void> cloneWorldData(@NotNull NamespacedKey sourceKey, @NotNull NamespacedKey targetKey, @Nullable java.util.function.DoubleConsumer progress);
 
     default CompletableFuture<Void> cloneWorldData(@NotNull NamespacedKey sourceKey, @NotNull NamespacedKey targetKey) {
         return cloneWorldData(sourceKey, targetKey, null);
     }
 
-    /**
-     * Imports a world from a legacy or vanilla directory structure into the Paper 26.x format.
-     */
     CompletableFuture<ImportStrategy> importWorld(
             @NotNull Path sourceDir,
             @NotNull NamespacedKey targetKey,
@@ -311,44 +243,23 @@ public interface VoyageAPI {
         return importWorld(sourceDir, targetKey, true, autoLink, dataProfileId, mergeStrategy, deleteSourceAfterImport, environment, null, null);
     }
 
-    /**
-     * Exports a world to a zipped archive.
-     */
     CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile);
 
-    /**
-     * Exports a world to a zipped archive, embedding the given player's
-     * Voyage state as level.dat's Data.Player — the data the vanilla
-     * singleplayer host receives when opening the save (position, inventory,
-     * ender chest, effects, game mode).
-     */
     default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                 @Nullable java.util.UUID primaryPlayer) {
         return exportWorld(worldKey, targetZipFile, primaryPlayer, null);
     }
 
-    /**
-     * Exports a world to a zipped archive with full player data and a
-     * human-readable world name (shown in the vanilla world list; the folder
-     * inside the archive stays unique per world).
-     */
     default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                 @Nullable java.util.UUID primaryPlayer,
                                                 @Nullable String displayName) {
         return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true);
     }
 
-    /**
-     * Exports a world to a zipped archive with full player data, a
-     * human-readable world name, and an option to omit the top-level root folder
-     * inside the zip so contents extract directly into the archive's base folder.
-     */
     default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                 @Nullable java.util.UUID primaryPlayer,
                                                 @Nullable String displayName,
                                                 boolean includeRootFolder) {
-        // Legacy implementations without the extended export fall back to the
-        // plain archive (no embedded player data, default naming).
         return exportWorld(worldKey, targetZipFile);
     }
 
@@ -370,9 +281,6 @@ public interface VoyageAPI {
         }
     }
 
-    /**
-     * Gets the profile ID currently responsible for storing player data in the given world.
-     */
     String getWorldDataProfile(NamespacedKey worldKey);
 
     enum DataLinkMergeStrategy {
@@ -384,20 +292,12 @@ public interface VoyageAPI {
 
     DataLinkPreview previewWorldDataProfile(NamespacedKey worldKey, String profileId, DataLinkMergeStrategy strategy);
 
-    /**
-     * Dynamically sets the data profile ID for a world. Worlds sharing the same ID share player data.
-     * Pass null or "none" as the profileId to isolate the world into its own unique data profile.
-     */
     CompletableFuture<Void> setWorldDataProfile(NamespacedKey worldKey, String profileId, DataLinkMergeStrategy strategy, java.util.function.DoubleConsumer progress);
 
     default CompletableFuture<Void> setWorldDataProfile(NamespacedKey worldKey, String profileId, DataLinkMergeStrategy strategy) {
         return setWorldDataProfile(worldKey, profileId, strategy, null);
     }
 
-    /**
-     * Isolates the world into its own unique data profile.
-     * @param cloneData If true, copies the group's current data into the new isolated profile.
-     */
     CompletableFuture<Void> breakWorldDataLink(NamespacedKey worldKey, boolean cloneData, java.util.function.DoubleConsumer progress);
 
     default CompletableFuture<Void> breakWorldDataLink(NamespacedKey worldKey, boolean cloneData) {
@@ -406,22 +306,8 @@ public interface VoyageAPI {
 
     record OfflineLocation(NamespacedKey worldKey, double x, double y, double z, float yaw, float pitch) {}
 
-    /**
-     * Retrieves the last physical location where the player logged off within the given world's profile group.
-     */
     Optional<OfflineLocation> getPlayerLogOffLocation(NamespacedKey worldKey, java.util.UUID playerUuid);
 
-    /**
-     * Resolves the appropriate destination location when a player enters a world.
-     * If preferPreviousLocation is true, restores to the player's last known location
-     * via getPlayerLogOffLocation (ensuring safe clearance); otherwise falls back to
-     * the safe centered spawn location.
-     *
-     * @param targetWorld            The Bukkit world to enter.
-     * @param playerUuid             The UUID of the player.
-     * @param preferPreviousLocation If true, restores previous location if available.
-     * @return The resolved safe Location in targetWorld.
-     */
     default org.bukkit.Location getPlayerEntryLocation(@NotNull World targetWorld, @NotNull java.util.UUID playerUuid, boolean preferPreviousLocation) {
         if (preferPreviousLocation) {
             Optional<OfflineLocation> offLoc = getPlayerLogOffLocation(targetWorld.getKey(), playerUuid);
@@ -430,7 +316,14 @@ public interface VoyageAPI {
                 return getSafeLocation(new org.bukkit.Location(targetWorld, off.x(), off.y(), off.z(), off.yaw(), off.pitch()));
             }
         }
-        return getSafeSpawnLocation(targetWorld);
+        Location spawn = getSafeSpawnLocation(targetWorld);
+        getManagedWorld(targetWorld.getKey()).ifPresent(mw -> {
+            mw.getConfiguredSpawnAngles().ifPresent(angles -> {
+                spawn.setYaw(angles[0]);
+                spawn.setPitch(angles[1]);
+            });
+        });
+        return spawn;
     }
 
     default org.bukkit.Location getPlayerEntryLocation(@NotNull World targetWorld, @NotNull java.util.UUID playerUuid) {

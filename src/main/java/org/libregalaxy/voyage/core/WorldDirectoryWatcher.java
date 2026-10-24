@@ -1,14 +1,16 @@
 package org.libregalaxy.voyage.core;
 
+import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Lightweight, on-demand TTL cache for unmanaged world names.
- * Replaces the heavy background OS WatchService daemon thread and debouncing delays.
+ * High-performance, zero-disk-I/O in-memory cache for unmanaged world names.
+ * Ensures Brigadier command suggestions never block the main thread or cause disk lag spikes.
  */
 public class WorldDirectoryWatcher {
 
@@ -16,38 +18,44 @@ public class WorldDirectoryWatcher {
     private final VoyageWorldManager manager;
     private final Set<String> unmanagedCache = ConcurrentHashMap.newKeySet();
 
-    private volatile long lastScanTime = 0L;
-    private static final long CACHE_TTL_MS = 5000L; // 5-second TTL cache for tab completions
-
-    public WorldDirectoryWatcher(JavaPlugin plugin, VoyageWorldManager manager) {
+    public WorldDirectoryWatcher(@NotNull JavaPlugin plugin, @NotNull VoyageWorldManager manager) {
         this.plugin = plugin;
         this.manager = manager;
     }
 
     public void start() {
-        populateInitialCache();
+        // Initial scan runs asynchronously on boot to prevent watchdog lag spikes
+        scanDiskAsync();
     }
 
     public void stop() {
         unmanagedCache.clear();
     }
 
-    public Set<String> getUnmanagedCache() {
-        long now = System.currentTimeMillis();
-        if (now - lastScanTime > CACHE_TTL_MS) {
-            refreshCache();
-            lastScanTime = now;
-        }
-        return unmanagedCache;
+    /**
+     * Instantly returns cached unmanaged world names.
+     * Guaranteed zero filesystem I/O: completely safe for Brigadier command suggestions.
+     */
+    public @NotNull Set<String> getUnmanagedCache() {
+        return Collections.unmodifiableSet(unmanagedCache);
     }
 
-    public void populateInitialCache() {
-        refreshCache();
-        lastScanTime = System.currentTimeMillis();
+    public void addUnmanaged(@NotNull String worldName) {
+        unmanagedCache.add(worldName);
     }
 
-    private synchronized void refreshCache() {
-        unmanagedCache.clear();
-        unmanagedCache.addAll(manager.scanDiskForUnmanagedWorlds());
+    public void removeUnmanaged(@NotNull String worldName) {
+        unmanagedCache.remove(worldName);
+    }
+
+    /**
+     * Asynchronously scans the disk to populate the unmanaged world cache.
+     */
+    public void scanDiskAsync() {
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            Set<String> discovered = manager.scanDiskForUnmanagedWorlds();
+            unmanagedCache.clear();
+            unmanagedCache.addAll(discovered);
+        });
     }
 }

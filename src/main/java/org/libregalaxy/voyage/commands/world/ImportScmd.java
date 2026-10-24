@@ -6,6 +6,8 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import me.itsmcb.vexelcore.bukkit.api.framework.FlagParser;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlag;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlags;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -30,6 +32,7 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
 
     private static final String WORLDS_TO_IMPORT_DIR = "worlds-to-import";
     private final VexelArg<String> folderArg;
+    private final VexelFlags importFlags;
     private final VexelArg<String> flagsArg;
 
     public ImportScmd(@NotNull VoyageContext context) {
@@ -38,9 +41,19 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
                 .suggests(this::suggestFolders)
                 .build();
 
-        this.flagsArg = VexelArg.builder("flags", StringArgumentType.greedyString(), String.class, "Flags: --namespace <ns>, --key <key>, --generator <gen>, --generator-settings <settings>, --do-not-auto-link, --link-data <profile> <strategy>, --environment <env>, --delete-after-import")
-                .optional()
+        this.importFlags = VexelFlags.builder()
+                .flag(VexelFlag.valued("namespace", "Target dimension namespace (default: custom)"))
+                .flag(VexelFlag.valued("key", "Explicit dimension key").alias("name"))
+                .flag(VexelFlag.valued("generator", "Custom chunk generator plugin").alias("g"))
+                .flag(VexelFlag.valued("generator-settings", "Generator settings JSON or string"))
+                .flag(VexelFlag.booleanFlag("do-not-auto-link", "Disable automatic portal linking between dimensions"))
+                .flag(VexelFlag.multiValued("link-data", "Link player data profile <profile> [strategy]", 2))
+                .flag(VexelFlag.valued("environment", "Dimension environment", List.of("NORMAL", "NETHER", "THE_END")))
+                .flag(VexelFlag.booleanFlag("delete-after-import", "Delete source folder from worlds-to-import/ upon success"))
                 .build();
+
+        this.flagsArg = importFlags.asArg("flags",
+                "Flags: --namespace <ns>, --key <key>, --generator <gen>, --generator-settings <settings>, --do-not-auto-link, --link-data <profile> [strategy], --environment <env>, --delete-after-import");
     }
 
     @Override public @NotNull List<VexelArg<?>> getArguments() { return List.of(folderArg, flagsArg); }
@@ -62,7 +75,7 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
             return;
         }
 
-        FlagParser flags = new FlagParser(flagsInput);
+        FlagParser flags = importFlags.parse(flagsInput);
 
         String namespace = "custom";
         if (flags.hasFlag("namespace")) {
@@ -75,7 +88,7 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
             }
         }
 
-        String explicitKey = flags.getValue("key").or(() -> flags.getValue("name")).orElse(null);
+        String explicitKey = flags.getValue("key").orElse(null);
         if (explicitKey != null) {
             explicitKey = explicitKey.toLowerCase(Locale.ROOT);
             if (!explicitKey.matches("[a-z0-9/._-]+")) {
@@ -93,7 +106,7 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
 
         World.Environment environment = null;
         if (flags.hasFlag("environment")) {
-            String envStr = flags.getValue("environment").orElse("NORMAL").toUpperCase();
+            String envStr = flags.getValue("environment").orElse("NORMAL").toUpperCase(Locale.ROOT);
             try {
                 environment = World.Environment.valueOf(envStr);
             } catch (IllegalArgumentException e) {
@@ -102,7 +115,7 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
             }
         }
 
-        String generator = flags.getValue("generator").or(() -> flags.getValue("g")).orElse(null);
+        String generator = flags.getValue("generator").orElse(null);
         String generatorSettings = flags.getValue("generator-settings").orElse(null);
 
         String dataProfile = flags.getValue("link-data").orElse(null);
@@ -118,7 +131,7 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
         List<String> linkDataValues = flags.getValues("link-data");
         if (linkDataValues.size() > 1) {
             try {
-                mergeStrategy = VoyageAPI.DataLinkMergeStrategy.valueOf(linkDataValues.get(1).toUpperCase());
+                mergeStrategy = VoyageAPI.DataLinkMergeStrategy.valueOf(linkDataValues.get(1).toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException ignored) {}
         }
 
@@ -185,8 +198,6 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
     private List<ImportTask> expandImportTargets(Path sourceDir, String namespace, @Nullable String explicitKey, CommandSender sender) {
         List<ImportTask> tasks = new ArrayList<>();
 
-        // If sourceDir is a complete standalone world save (contains level.dat or region files directly),
-        // do NOT descend into internal dimensions/minecraft/overworld. Treat sourceDir as the world save root.
         if (Files.isRegularFile(sourceDir.resolve("level.dat")) || Files.isDirectory(sourceDir.resolve("region"))) {
             String keyName = (explicitKey != null) ? explicitKey : sourceDir.getFileName().toString();
             NamespacedKey targetKey = resolveNamespacedKey(namespace, keyName);

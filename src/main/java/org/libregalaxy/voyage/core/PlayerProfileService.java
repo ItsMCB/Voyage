@@ -11,26 +11,36 @@ import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.api.events.VoyageWorldPreLinkEvent;
+import org.libregalaxy.voyage.core.database.VoyageDatabaseService;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
 
+/**
+ * Manages player profile state persistence (inventories, ender chests, health, XP,
+ * and locations) across isolated worlds and shared world groups using SQLite.
+ */
 public class PlayerProfileService {
 
     private final VoyageContext context;
     private final Gson gson;
-    private final File dataFolder;
+    private final VoyageDatabaseService databaseService;
+    private final File legacyDataFolder;
 
     private record ProfileKey(String profileId, UUID uuid) {}
 
     private final Map<ProfileKey, PlayerStateSerializer.PlayerState> pendingWrites = new ConcurrentHashMap<>();
     private final Set<ProfileKey> scheduledWrites = ConcurrentHashMap.newKeySet();
-    private final Thread shutdownHook;
 
     private final ExecutorService profileWriter = Executors.newSingleThreadExecutor(r -> new Thread(r, "Voyage-Profile-Writer"));
 
@@ -39,31 +49,16 @@ public class PlayerProfileService {
 
     public static final int CURRENT_SCHEMA = 1;
 
-    public PlayerProfileService(VoyageContext context) {
+    public PlayerProfileService(@NotNull VoyageContext context) {
         this.context = context;
         this.gson = new Gson();
-        this.dataFolder = new File(context.getPlugin().getDataFolder(), "playerdata");
-        if (!dataFolder.exists()) dataFolder.mkdirs();
-
-        this.shutdownHook = new Thread(() -> {
-            profileWriter.shutdown();
-            try {
-                if (!profileWriter.awaitTermination(5, TimeUnit.SECONDS)) {
-                    context.getPlugin().getLogger().warning("Profile writer flush timed out. Forcing flush.");
-                    forceFlushPendingWrites();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }, "voyage-profile-shutdown");
-        Runtime.getRuntime().addShutdownHook(shutdownHook);
+        this.databaseService = VoyageDatabaseService.resolve(context);
+        this.legacyDataFolder = (context.getPlugin() != null && context.getPlugin().getDataFolder() != null)
+                ? new File(context.getPlugin().getDataFolder(), "playerdata")
+                : new File("build/tmp/playerdata");
     }
 
     public void shutdown() {
-        try {
-            Runtime.getRuntime().removeShutdownHook(shutdownHook);
-        } catch (IllegalStateException ignored) {}
-
         profileWriter.shutdown();
         try {
             if (!profileWriter.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -74,13 +69,13 @@ public class PlayerProfileService {
         }
     }
 
-    void forceFlushPendingWrites() {
+    public void forceFlushPendingWrites() {
         for (Map.Entry<ProfileKey, PlayerStateSerializer.PlayerState> entry : pendingWrites.entrySet()) {
             ProfileKey key = entry.getKey();
             PlayerStateSerializer.PlayerState toWrite = pendingWrites.get(key);
             if (toWrite != null) {
                 try {
-                    savePlayerStateToFile(key.profileId(), key.uuid(), toWrite);
+                    savePlayerStateToDatabaseSync(key.profileId(), key.uuid(), toWrite);
                 } catch (Exception e) {
                     context.getPlugin().getLogger().severe("Failed to force-flush data for " + key.uuid() + ": " + e.getMessage());
                 } finally {
@@ -91,9 +86,7 @@ public class PlayerProfileService {
         scheduledWrites.clear();
     }
 
-    public void loadAll() {
-        if (!dataFolder.exists()) dataFolder.mkdirs();
-    }
+    public void loadAll() {}
 
     public void reload() {
         invalidateProfileCache();
@@ -102,10 +95,6 @@ public class PlayerProfileService {
 
     public void invalidateProfileCache() {
         profileIdCache.clear();
-    }
-
-    private File getProfileFolder(String profileId) {
-        return new File(dataFolder, "profiles" + File.separator + profileId.replace(":", "_"));
     }
 
     public String getProfileId(@NotNull NamespacedKey worldKey) {
@@ -142,28 +131,11 @@ public class PlayerProfileService {
         if (entry.equalsIgnoreCase(key.asString())) return true;
         NamespacedKey parsed = NamespacedKey.fromString(entry);
         if (key.equals(parsed)) return true;
-        if (key.getNamespace().equals(NamespacedKey.MINECRAFT) && entry.equalsIgnoreCase(key.getKey())) {
-            return true;
-        }
-        return false;
+        return key.getNamespace().equals(NamespacedKey.MINECRAFT) && entry.equalsIgnoreCase(key.getKey());
     }
 
-    private PlayerStateSerializer.PlayerState readPlayerStateDirectlyFromFile(File file, UUID uuid) {
-        if (!file.exists()) return null;
-        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
-            return gson.fromJson(reader, PlayerStateSerializer.PlayerState.class);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private void savePlayerStateToFile(String profileId, UUID uuid, PlayerStateSerializer.PlayerState state) {
-        File dir = getProfileFolder(profileId);
-        if (!dir.exists()) dir.mkdirs();
-        File file = new File(dir, uuid.toString() + ".json");
-        File temp = new File(dir, uuid.toString() + ".json.tmp");
-
-        // Preserve previously recorded locations for other worlds in the same profile group
+    private synchronized void savePlayerStateToDatabaseSync(String profileId, UUID uuid, PlayerStateSerializer.PlayerState state) throws SQLException {
+        // Preserve offline locations from previous sessions
         if (state.worldLocations == null) {
             state.worldLocations = new HashMap<>();
         }
@@ -171,31 +143,44 @@ public class PlayerProfileService {
             state.worldLocations.put(state.lastLocWorld, new PlayerStateSerializer.LocationData(
                     state.lastLocX, state.lastLocY, state.lastLocZ, state.lastLocYaw, state.lastLocPitch));
         }
-        if (file.exists()) {
-            PlayerStateSerializer.PlayerState existing = readPlayerStateDirectlyFromFile(file, uuid);
-            if (existing != null && existing.worldLocations != null) {
-                for (Map.Entry<String, PlayerStateSerializer.LocationData> entry : existing.worldLocations.entrySet()) {
-                    state.worldLocations.putIfAbsent(entry.getKey(), entry.getValue());
+
+        // Fast index check to merge any previously stored world locations
+        try (Connection conn = databaseService.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT state_json FROM voyage_player_profiles WHERE profile_id = ? AND player_uuid = ?;")) {
+            ps.setString(1, profileId);
+            ps.setString(2, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String existingJson = rs.getString("state_json");
+                    PlayerStateSerializer.PlayerState existing = gson.fromJson(existingJson, PlayerStateSerializer.PlayerState.class);
+                    if (existing != null && existing.worldLocations != null) {
+                        for (Map.Entry<String, PlayerStateSerializer.LocationData> entry : existing.worldLocations.entrySet()) {
+                            state.worldLocations.putIfAbsent(entry.getKey(), entry.getValue());
+                        }
+                    }
                 }
             }
         }
 
-        try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(temp), StandardCharsets.UTF_8)) {
-            gson.toJson(state, writer);
-        } catch (IOException e) {
-            throw new CompletionException("Failed to stream JSON for " + uuid, e);
-        }
+        String json = gson.toJson(state);
+        long now = System.currentTimeMillis();
 
-        try {
-            Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            try {
-                Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException ex) {
-                throw new CompletionException("Failed fallback move for " + uuid, ex);
-            }
-        } catch (IOException e) {
-            throw new CompletionException("Failed to execute move for " + uuid, e);
+        String upsertSql = """
+            INSERT INTO voyage_player_profiles (profile_id, player_uuid, state_json, last_updated)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(profile_id, player_uuid) DO UPDATE SET
+                state_json = excluded.state_json,
+                last_updated = excluded.last_updated;
+        """;
+
+        try (Connection conn = databaseService.getConnection();
+             PreparedStatement ps = conn.prepareStatement(upsertSql)) {
+            ps.setString(1, profileId);
+            ps.setString(2, uuid.toString());
+            ps.setString(3, json);
+            ps.setLong(4, now);
+            ps.executeUpdate();
         }
     }
 
@@ -209,7 +194,9 @@ public class PlayerProfileService {
                 PlayerStateSerializer.PlayerState toWrite = pendingWrites.get(key);
                 if (toWrite != null) {
                     try {
-                        savePlayerStateToFile(profileId, uuid, toWrite);
+                        savePlayerStateToDatabaseSync(profileId, uuid, toWrite);
+                    } catch (SQLException e) {
+                        context.getPlugin().getLogger().log(Level.SEVERE, "Failed async player save for " + uuid, e);
                     } finally {
                         pendingWrites.remove(key, toWrite);
                     }
@@ -228,7 +215,9 @@ public class PlayerProfileService {
                     PlayerStateSerializer.PlayerState toWrite = pendingWrites.get(key);
                     if (toWrite != null) {
                         try {
-                            savePlayerStateToFile(profileId, uuid, toWrite);
+                            savePlayerStateToDatabaseSync(profileId, uuid, toWrite);
+                        } catch (SQLException e) {
+                            context.getPlugin().getLogger().log(Level.SEVERE, "Failed sync player save task for " + uuid, e);
                         } finally {
                             pendingWrites.remove(key, toWrite);
                         }
@@ -239,31 +228,53 @@ public class PlayerProfileService {
         }
         scheduledWrites.remove(key);
         try {
-            savePlayerStateToFile(profileId, uuid, state);
+            savePlayerStateToDatabaseSync(profileId, uuid, state);
+        } catch (SQLException e) {
+            context.getPlugin().getLogger().log(Level.SEVERE, "Failed sync player save for " + uuid, e);
         } finally {
             pendingWrites.remove(key, state);
         }
     }
 
+    /**
+     * Reads a player state. Checks in-memory pending queue first, then SQLite,
+     * with a transparent fallback to legacy JSON files if not yet migrated.
+     */
     public PlayerStateSerializer.PlayerState loadPlayerStateFromFile(String profileId, UUID uuid) {
         ProfileKey key = new ProfileKey(profileId, uuid);
 
         PlayerStateSerializer.PlayerState pending = pendingWrites.get(key);
         if (pending != null) return pending;
 
-        File file = new File(getProfileFolder(profileId), uuid.toString() + ".json");
-        if (!file.exists()) return null;
-
-        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
-            PlayerStateSerializer.PlayerState state = gson.fromJson(reader, PlayerStateSerializer.PlayerState.class);
-            if (state != null && state.schemaVersion != CURRENT_SCHEMA) {
-                context.getPlugin().getLogger().warning("Player state for " + uuid + " has schema version " + state.schemaVersion + ", expected " + CURRENT_SCHEMA);
+        // 1. Read from SQLite
+        try (Connection conn = databaseService.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT state_json FROM voyage_player_profiles WHERE profile_id = ? AND player_uuid = ?;")) {
+            ps.setString(1, profileId);
+            ps.setString(2, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String json = rs.getString("state_json");
+                    return gson.fromJson(json, PlayerStateSerializer.PlayerState.class);
+                }
             }
-            return state;
-        } catch (Exception e) {
-            context.getPlugin().getLogger().severe("Failed to parse player data for " + uuid);
-            return null;
+        } catch (SQLException e) {
+            context.getPlugin().getLogger().log(Level.SEVERE, "Database error loading player " + uuid, e);
         }
+
+        // 2. Non-destructive legacy file fallback
+        File legacyFile = new File(legacyDataFolder, "profiles/" + profileId.replace(":", "_") + "/" + uuid + ".json");
+        if (legacyFile.exists()) {
+            try (InputStreamReader reader = new InputStreamReader(new FileInputStream(legacyFile), StandardCharsets.UTF_8)) {
+                PlayerStateSerializer.PlayerState state = gson.fromJson(reader, PlayerStateSerializer.PlayerState.class);
+                if (state != null) {
+                    savePlayerStateAsync(profileId, uuid, state);
+                    return state;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        return null;
     }
 
     public void saveAllOnlineAsync() {
@@ -296,8 +307,7 @@ public class PlayerProfileService {
                     if (removed) {
                         groups.set(group, worlds.isEmpty() ? null : worlds);
                         if (worlds.isEmpty()) {
-                            File oldGroupDir = getProfileFolder("group:" + group);
-                            profileWriter.submit(() -> deleteDirectory(oldGroupDir));
+                            deleteProfileRecordsAsync("group:" + group);
                         }
                         changed = true;
                     }
@@ -317,25 +327,19 @@ public class PlayerProfileService {
         String defaultProfileId = getDefaultProfileId(worldKey);
         pendingWrites.keySet().removeIf(k -> k.profileId().equals(defaultProfileId));
         scheduledWrites.removeIf(k -> k.profileId().equals(defaultProfileId));
-        profileWriter.submit(() -> deleteDirectory(getProfileFolder(defaultProfileId)));
+        deleteProfileRecordsAsync(defaultProfileId);
     }
 
-    private void deleteDirectory(File dir) {
-        if (!dir.exists()) return;
-        try {
-            Files.walkFileTree(dir.toPath(), new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    Files.delete(file);
-                    return FileVisitResult.CONTINUE;
-                }
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                    Files.delete(dir);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (IOException ignored) {}
+    private void deleteProfileRecordsAsync(String profileId) {
+        profileWriter.submit(() -> {
+            try (Connection conn = databaseService.getConnection();
+                 PreparedStatement ps = conn.prepareStatement("DELETE FROM voyage_player_profiles WHERE profile_id = ?;")) {
+                ps.setString(1, profileId);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                context.getPlugin().getLogger().log(Level.SEVERE, "Failed to delete profiles for " + profileId, e);
+            }
+        });
     }
 
     public VoyageAPI.DataLinkPreview previewProfileMerge(NamespacedKey worldKey, String targetProfileIdRaw, VoyageAPI.DataLinkMergeStrategy strategy) {
@@ -343,9 +347,7 @@ public class PlayerProfileService {
         String targetId;
         if (targetProfileIdRaw == null || targetProfileIdRaw.equalsIgnoreCase("none") || targetProfileIdRaw.equals(getDefaultProfileId(worldKey))) {
             targetId = getDefaultProfileId(worldKey);
-        } else if (targetProfileIdRaw.startsWith("group:")) {
-            targetId = targetProfileIdRaw;
-        } else if (targetProfileIdRaw.startsWith("isolated:")) {
+        } else if (targetProfileIdRaw.startsWith("group:") || targetProfileIdRaw.startsWith("isolated:")) {
             targetId = targetProfileIdRaw;
         } else {
             targetId = "group:" + targetProfileIdRaw;
@@ -355,16 +357,8 @@ public class PlayerProfileService {
 
         if (sourceId.equals(targetId)) return new VoyageAPI.DataLinkPreview(0, 0, 0, effectiveStrategy);
 
-        File sourceDir = getProfileFolder(sourceId);
-        File targetDir = getProfileFolder(targetId);
-
-        Set<String> sourceUuids = new HashSet<>();
-        if (sourceDir.exists()) {
-            String[] sourceFiles = sourceDir.list((d, n) -> n.endsWith(".json"));
-            if (sourceFiles != null) {
-                for (String file : sourceFiles) sourceUuids.add(file.replace(".json", ""));
-            }
-        }
+        Set<String> sourceUuids = getPlayerUuidsInProfile(sourceId);
+        Set<String> targetUuids = getPlayerUuidsInProfile(targetId);
 
         try {
             World sourceWorld = Bukkit.getWorld(worldKey);
@@ -374,23 +368,8 @@ public class PlayerProfileService {
         } catch (Exception ignored) {}
 
         for (ProfileKey pk : pendingWrites.keySet()) {
-            if (pk.profileId().equals(sourceId)) {
-                sourceUuids.add(pk.uuid().toString());
-            }
-        }
-
-        Set<String> targetUuids = new HashSet<>();
-        if (targetDir.exists()) {
-            String[] targetFiles = targetDir.list((d, n) -> n.endsWith(".json"));
-            if (targetFiles != null) {
-                for (String file : targetFiles) targetUuids.add(file.replace(".json", ""));
-            }
-        }
-
-        for (ProfileKey pk : pendingWrites.keySet()) {
-            if (pk.profileId().equals(targetId)) {
-                targetUuids.add(pk.uuid().toString());
-            }
+            if (pk.profileId().equals(sourceId)) sourceUuids.add(pk.uuid().toString());
+            if (pk.profileId().equals(targetId)) targetUuids.add(pk.uuid().toString());
         }
 
         int conflicts = 0;
@@ -402,6 +381,20 @@ public class PlayerProfileService {
         int targetOnly = targetUuids.size() - conflicts;
 
         return new VoyageAPI.DataLinkPreview(newToTarget, conflicts, targetOnly, effectiveStrategy);
+    }
+
+    private Set<String> getPlayerUuidsInProfile(String profileId) {
+        Set<String> uuids = new HashSet<>();
+        try (Connection conn = databaseService.getConnection();
+             PreparedStatement ps = conn.prepareStatement("SELECT player_uuid FROM voyage_player_profiles WHERE profile_id = ?;")) {
+            ps.setString(1, profileId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) uuids.add(rs.getString("player_uuid"));
+            }
+        } catch (SQLException e) {
+            context.getPlugin().getLogger().log(Level.SEVERE, "Failed to load player UUIDs for profile: " + profileId, e);
+        }
+        return uuids;
     }
 
     public CompletableFuture<Void> setProfileId(@NotNull NamespacedKey worldKey, String newProfileIdRaw, VoyageAPI.DataLinkMergeStrategy strategy, java.util.function.DoubleConsumer progress) {
@@ -440,7 +433,6 @@ public class PlayerProfileService {
         return eventFuture.thenCompose(notCancelled -> {
             if (!notCancelled) return CompletableFuture.completedFuture(null);
 
-            // Synchronously capture online players in this world without kicking them
             CompletableFuture<Void> preparePlayersFuture = new CompletableFuture<>();
             Runnable prepareTask = () -> {
                 World bukkitWorld = Bukkit.getWorld(worldKey);
@@ -458,84 +450,57 @@ public class PlayerProfileService {
             return preparePlayersFuture.thenCompose(v -> CompletableFuture.runAsync(() -> {
                 forceFlushPendingWrites();
 
-                File sourceDir = getProfileFolder(sourceId);
-                File targetDir = getProfileFolder(targetId);
-
-                if (targetId.startsWith("isolated:") && targetDir.exists()) {
-                    deleteDirectory(targetDir);
-                }
-                if (!targetDir.exists()) targetDir.mkdirs();
-
-                if (sourceDir.exists()) {
-                    File[] sourceFiles = sourceDir.listFiles((d, n) -> n.endsWith(".json"));
-                    if (sourceFiles != null && sourceFiles.length > 0) {
-                        int total = sourceFiles.length;
-                        int count = 0;
-                        for (File sf : sourceFiles) {
-                            File tf = new File(targetDir, sf.getName());
-                            if (!tf.exists()) {
-                                try {
-                                    Files.copy(sf.toPath(), tf.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                                } catch (IOException e) {
-                                    throw new CompletionException(new IOException("Failed to merge data file: " + sf.getName(), e));
-                                }
-                            } else {
-                                try {
-                                    PlayerStateSerializer.PlayerState sourceState;
-                                    try (InputStreamReader reader = new InputStreamReader(new FileInputStream(sf), StandardCharsets.UTF_8)) {
-                                        sourceState = gson.fromJson(reader, PlayerStateSerializer.PlayerState.class);
-                                    }
-                                    PlayerStateSerializer.PlayerState targetState;
-                                    try (InputStreamReader reader = new InputStreamReader(new FileInputStream(tf), StandardCharsets.UTF_8)) {
-                                        targetState = gson.fromJson(reader, PlayerStateSerializer.PlayerState.class);
-                                    }
-
-                                    if (sourceState != null && targetState != null) {
-                                        PlayerStateSerializer.PlayerState primaryState =
-                                                (effectiveStrategy == VoyageAPI.DataLinkMergeStrategy.SOURCE_PRIORITY) ? sourceState : targetState;
-                                        PlayerStateSerializer.PlayerState secondaryState =
-                                                (effectiveStrategy == VoyageAPI.DataLinkMergeStrategy.SOURCE_PRIORITY) ? targetState : sourceState;
-
-                                        // Merge offline locations from both profiles so positions are preserved
-                                        if (secondaryState.worldLocations != null) {
-                                            if (primaryState.worldLocations == null) {
-                                                primaryState.worldLocations = new HashMap<>();
-                                            }
-                                            for (Map.Entry<String, PlayerStateSerializer.LocationData> entry : secondaryState.worldLocations.entrySet()) {
-                                                primaryState.worldLocations.putIfAbsent(entry.getKey(), entry.getValue());
-                                            }
-                                        }
-                                        if (secondaryState.lastLocWorld != null && primaryState.worldLocations != null) {
-                                            primaryState.worldLocations.putIfAbsent(secondaryState.lastLocWorld, new PlayerStateSerializer.LocationData(
-                                                    secondaryState.lastLocX, secondaryState.lastLocY, secondaryState.lastLocZ, secondaryState.lastLocYaw, secondaryState.lastLocPitch));
-                                        }
-
-                                        File tempFile = new File(targetDir, tf.getName() + ".tmp");
-                                        try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(tempFile), StandardCharsets.UTF_8)) {
-                                            gson.toJson(primaryState, writer);
-                                        }
-                                        Files.move(tempFile.toPath(), tf.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                                    } else if (effectiveStrategy == VoyageAPI.DataLinkMergeStrategy.SOURCE_PRIORITY) {
-                                        Files.copy(sf.toPath(), tf.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                                    }
-                                } catch (IOException e) {
-                                    if (effectiveStrategy == VoyageAPI.DataLinkMergeStrategy.SOURCE_PRIORITY) {
-                                        try {
-                                            Files.copy(sf.toPath(), tf.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                                        } catch (IOException ex) {
-                                            throw new CompletionException(new IOException("Failed to merge data file: " + sf.getName(), ex));
-                                        }
-                                    }
-                                }
+                try (Connection conn = databaseService.getConnection()) {
+                    conn.setAutoCommit(false);
+                    try {
+                        if (targetId.startsWith("isolated:")) {
+                            try (PreparedStatement delTarget = conn.prepareStatement(
+                                    "DELETE FROM voyage_player_profiles WHERE profile_id = ?;")) {
+                                delTarget.setString(1, targetId);
+                                delTarget.executeUpdate();
                             }
-                            count++;
-                            if (progress != null) progress.accept((double) count / total);
                         }
-                    } else if (progress != null) progress.accept(1.0);
-                } else if (progress != null) progress.accept(1.0);
 
-                if (sourceId.startsWith("isolated:") && sourceDir.exists()) {
-                    deleteDirectory(sourceDir);
+                        // SQL-level merge based on strategy
+                        String mergeSql = (effectiveStrategy == VoyageAPI.DataLinkMergeStrategy.SOURCE_PRIORITY)
+                                ? """
+                                    INSERT INTO voyage_player_profiles (profile_id, player_uuid, state_json, last_updated)
+                                    SELECT ?, player_uuid, state_json, ? FROM voyage_player_profiles WHERE profile_id = ?
+                                    ON CONFLICT(profile_id, player_uuid) DO UPDATE SET
+                                        state_json = excluded.state_json,
+                                        last_updated = excluded.last_updated;
+                                """
+                                : """
+                                    INSERT INTO voyage_player_profiles (profile_id, player_uuid, state_json, last_updated)
+                                    SELECT ?, player_uuid, state_json, ? FROM voyage_player_profiles WHERE profile_id = ?
+                                    ON CONFLICT(profile_id, player_uuid) DO NOTHING;
+                                """;
+
+                        try (PreparedStatement ps = conn.prepareStatement(mergeSql)) {
+                            ps.setString(1, targetId);
+                            ps.setLong(2, System.currentTimeMillis());
+                            ps.setString(3, sourceId);
+                            ps.executeUpdate();
+                        }
+
+                        if (sourceId.startsWith("isolated:")) {
+                            try (PreparedStatement delSource = conn.prepareStatement(
+                                    "DELETE FROM voyage_player_profiles WHERE profile_id = ?;")) {
+                                delSource.setString(1, sourceId);
+                                delSource.executeUpdate();
+                            }
+                        }
+
+                        conn.commit();
+                        if (progress != null) progress.accept(1.0);
+                    } catch (SQLException ex) {
+                        conn.rollback();
+                        throw new CompletionException("Database transaction failed during profile link", ex);
+                    } finally {
+                        conn.setAutoCommit(true);
+                    }
+                } catch (SQLException e) {
+                    throw new CompletionException(e);
                 }
             }, profileWriter)).thenCompose(v -> {
                 CompletableFuture<Void> syncFuture = new CompletableFuture<>();
@@ -553,8 +518,7 @@ public class PlayerProfileService {
                             if (removed) {
                                 groups.set(group, worlds.isEmpty() ? null : worlds);
                                 if (worlds.isEmpty()) {
-                                    File oldGroupDir = getProfileFolder("group:" + group);
-                                    profileWriter.submit(() -> deleteDirectory(oldGroupDir));
+                                    deleteProfileRecordsAsync("group:" + group);
                                 }
                             }
                         }
@@ -620,29 +584,38 @@ public class PlayerProfileService {
         return preparePlayersFuture.thenCompose(v -> CompletableFuture.runAsync(() -> {
             forceFlushPendingWrites();
 
-            File sourceDir = getProfileFolder(sourceId);
-            File targetDir = getProfileFolder(targetId);
-
-            if (targetDir.exists()) deleteDirectory(targetDir);
-            targetDir.mkdirs();
-
-            if (cloneData && sourceDir.exists()) {
-                File[] sourceFiles = sourceDir.listFiles((d, n) -> n.endsWith(".json"));
-                if (sourceFiles != null && sourceFiles.length > 0) {
-                    int total = sourceFiles.length;
-                    int count = 0;
-                    for (File sf : sourceFiles) {
-                        try {
-                            Files.copy(sf.toPath(), new File(targetDir, sf.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
-                        } catch (IOException e) {
-                            throw new CompletionException(new IOException("Failed to clone data file: " + sf.getName(), e));
-                        }
-                        count++;
-                        if (progress != null) progress.accept((double) count / total);
+            try (Connection conn = databaseService.getConnection()) {
+                conn.setAutoCommit(false);
+                try {
+                    try (PreparedStatement delTarget = conn.prepareStatement(
+                            "DELETE FROM voyage_player_profiles WHERE profile_id = ?;")) {
+                        delTarget.setString(1, targetId);
+                        delTarget.executeUpdate();
                     }
-                } else if (progress != null) progress.accept(1.0);
-            } else if (progress != null) {
-                progress.accept(1.0);
+
+                    if (cloneData) {
+                        String copySql = """
+                            INSERT INTO voyage_player_profiles (profile_id, player_uuid, state_json, last_updated)
+                            SELECT ?, player_uuid, state_json, ? FROM voyage_player_profiles WHERE profile_id = ?;
+                        """;
+                        try (PreparedStatement ps = conn.prepareStatement(copySql)) {
+                            ps.setString(1, targetId);
+                            ps.setLong(2, System.currentTimeMillis());
+                            ps.setString(3, sourceId);
+                            ps.executeUpdate();
+                        }
+                    }
+
+                    conn.commit();
+                    if (progress != null) progress.accept(1.0);
+                } catch (SQLException ex) {
+                    conn.rollback();
+                    throw new CompletionException("Database error removing data link", ex);
+                } finally {
+                    conn.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                throw new CompletionException(e);
             }
         }, profileWriter)).thenCompose(v -> {
             CompletableFuture<Void> syncFuture = new CompletableFuture<>();
@@ -659,15 +632,13 @@ public class PlayerProfileService {
                             if (removed) {
                                 groups.set(group, worlds.isEmpty() ? null : worlds);
                                 if (worlds.isEmpty()) {
-                                    File oldGroupDir = getProfileFolder("group:" + group);
-                                    profileWriter.submit(() -> deleteDirectory(oldGroupDir));
+                                    deleteProfileRecordsAsync("group:" + group);
                                 }
                             }
                         }
                     }
                     context.getPlugin().saveConfig();
 
-                    // Hot-swap state for online players in worldKey
                     World bw = Bukkit.getWorld(worldKey);
                     if (bw != null) {
                         for (Player p : bw.getPlayers()) {
@@ -721,26 +692,24 @@ public class PlayerProfileService {
         return preparePlayersFuture.thenCompose(v -> CompletableFuture.runAsync(() -> {
             forceFlushPendingWrites();
 
-            File sourceDir = getProfileFolder(sourceId);
-            File targetDir = getProfileFolder(targetId);
-            if (!targetDir.exists()) targetDir.mkdirs();
+            String cloneSql = """
+                INSERT INTO voyage_player_profiles (profile_id, player_uuid, state_json, last_updated)
+                SELECT ?, player_uuid, state_json, ? FROM voyage_player_profiles WHERE profile_id = ?
+                ON CONFLICT(profile_id, player_uuid) DO UPDATE SET
+                    state_json = excluded.state_json,
+                    last_updated = excluded.last_updated;
+            """;
 
-            if (sourceDir.exists()) {
-                File[] sourceFiles = sourceDir.listFiles((d, n) -> n.endsWith(".json"));
-                if (sourceFiles != null && sourceFiles.length > 0) {
-                    int total = sourceFiles.length;
-                    int count = 0;
-                    for (File sf : sourceFiles) {
-                        try {
-                            Files.copy(sf.toPath(), new File(targetDir, sf.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
-                        } catch (IOException e) {
-                            throw new CompletionException(new IOException("Failed to clone data file: " + sf.getName(), e));
-                        }
-                        count++;
-                        if (progress != null) progress.accept((double) count / total);
-                    }
-                } else if (progress != null) progress.accept(1.0);
-            } else if (progress != null) progress.accept(1.0);
+            try (Connection conn = databaseService.getConnection();
+                 PreparedStatement ps = conn.prepareStatement(cloneSql)) {
+                ps.setString(1, targetId);
+                ps.setLong(2, System.currentTimeMillis());
+                ps.setString(3, sourceId);
+                ps.executeUpdate();
+                if (progress != null) progress.accept(1.0);
+            } catch (SQLException e) {
+                throw new CompletionException("Failed to clone player data via SQLite", e);
+            }
         }, profileWriter));
     }
 
@@ -773,38 +742,37 @@ public class PlayerProfileService {
     }
 
     /**
-     * Loads every stored player state belonging to a world's data profile —
-     * the on-disk profile folder plus any pending writes (which are always
-     * fresher than the files). Used by the vanilla world export to build
-     * playerdata entries for every player who has played in the world.
+     * Loads every stored player state belonging to a world's data profile.
+     * Used by the vanilla world export to package playerdata.
      */
     public @NotNull Map<UUID, PlayerStateSerializer.PlayerState> loadAllPlayerStates(@NotNull NamespacedKey worldKey) {
         String profileId = getProfileId(worldKey);
         Map<UUID, PlayerStateSerializer.PlayerState> states = new LinkedHashMap<>();
-        Set<UUID> uuids = new LinkedHashSet<>();
 
-        // Players with unsaved-in-flight state (e.g. just evacuated)
-        for (ProfileKey pending : pendingWrites.keySet()) {
-            if (pending.profileId().equals(profileId)) uuids.add(pending.uuid());
+        try (Connection conn = databaseService.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT player_uuid, state_json FROM voyage_player_profiles WHERE profile_id = ?;")) {
+            ps.setString(1, profileId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    try {
+                        UUID uuid = UUID.fromString(rs.getString("player_uuid"));
+                        String json = rs.getString("state_json");
+                        states.put(uuid, gson.fromJson(json, PlayerStateSerializer.PlayerState.class));
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (SQLException e) {
+            context.getPlugin().getLogger().log(Level.SEVERE, "Failed to load states for export on profile: " + profileId, e);
         }
 
-        File dir = getProfileFolder(profileId);
-        if (dir.exists()) {
-            String[] files = dir.list((d, name) -> name.endsWith(".json"));
-            if (files != null) {
-                for (String fileName : files) {
-                    try {
-                        uuids.add(UUID.fromString(fileName.replace(".json", "")));
-                    } catch (IllegalArgumentException ignored) {}
-                }
+        // Overlay pending in-memory writes (fresher than DB)
+        for (Map.Entry<ProfileKey, PlayerStateSerializer.PlayerState> entry : pendingWrites.entrySet()) {
+            if (entry.getKey().profileId().equals(profileId)) {
+                states.put(entry.getKey().uuid(), entry.getValue());
             }
         }
 
-        for (UUID uuid : uuids) {
-            // loadPlayerStateFromFile already prefers pendingWrites over disk
-            PlayerStateSerializer.PlayerState state = loadPlayerStateFromFile(profileId, uuid);
-            if (state != null) states.put(uuid, state);
-        }
         return states;
     }
 }
