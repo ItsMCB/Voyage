@@ -13,12 +13,14 @@ import org.bukkit.block.Block;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.api.builder.WorldBuilder;
+import org.libregalaxy.voyage.core.PlayerStateSerializer;
 
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public interface VoyageAPI {
@@ -282,6 +284,12 @@ public interface VoyageAPI {
     }
 
     String getWorldDataProfile(NamespacedKey worldKey);
+
+    /**
+     * Persists a player's profile state directly into the database for the profile
+     * governing the specified worldKey.
+     */
+    void setPlayerProfileState(@NotNull NamespacedKey worldKey, @NotNull UUID playerUuid, @NotNull PlayerStateSerializer.PlayerState state);
 
     enum DataLinkMergeStrategy {
         SOURCE_PRIORITY,

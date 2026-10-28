@@ -146,6 +146,21 @@ public class WorldFileService {
                         }
                     });
                 }
+
+                // Clean up empty parent namespace directory if it's under dimensions/
+                try {
+                    Path parent = path.getParent();
+                    if (parent != null && parent.getParent() != null
+                            && parent.getParent().getFileName() != null
+                            && parent.getParent().getFileName().toString().equals("dimensions")) {
+                        try (var stream = Files.list(parent)) {
+                            if (stream.findAny().isEmpty()) {
+                                Files.deleteIfExists(parent);
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+
                 future.complete(null);
             } catch (IOException e) {
                 if (attemptsLeft > 1) {

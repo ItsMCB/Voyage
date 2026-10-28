@@ -241,6 +241,12 @@ public class VoyageWorldManager implements VoyageAPI {
     }
 
     @Override public String getWorldDataProfile(@NotNull NamespacedKey worldKey) { return context.getService(PlayerDataManager.class).getProfileId(worldKey); }
+
+    @Override
+    public void setPlayerProfileState(@NotNull NamespacedKey worldKey, @NotNull UUID playerUuid, @NotNull PlayerStateSerializer.PlayerState state) {
+        context.getService(PlayerDataManager.class).setPlayerProfileState(worldKey, playerUuid, state);
+    }
+
     @Override public DataLinkPreview previewWorldDataProfile(@NotNull NamespacedKey worldKey, String profileId, DataLinkMergeStrategy strategy) { return context.getService(PlayerDataManager.class).previewProfileMerge(worldKey, profileId, strategy); }
 
     @Override

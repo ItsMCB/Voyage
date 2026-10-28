@@ -1,7 +1,5 @@
 package org.libregalaxy.voyage.core;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -14,7 +12,6 @@ import org.libregalaxy.voyage.VoyageContext;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.UUID;
@@ -108,13 +105,21 @@ class PlayerProfileServicePersistenceTest {
     }
 
     @Test
-    void malformedJson_returnsNullInsteadOfThrowing() throws Exception {
+    void deleteWorldData_purgesProfileRecordsFromDatabase() throws Exception {
         UUID uuid = UUID.randomUUID();
-        Path profileDir = tempDir.resolve("playerdata/profiles/isolated_custom_moon");
-        Files.createDirectories(profileDir);
-        Files.writeString(profileDir.resolve(uuid + ".json"), "{ definitely not valid json");
+        NamespacedKey key = NamespacedKey.fromString("custom:to_delete");
+        String profile = service.getDefaultProfileId(key);
 
-        assertNull(service.loadPlayerStateFromFile("isolated:custom_moon", uuid));
+        PlayerStateSerializer.PlayerState state = new PlayerStateSerializer.PlayerState();
+        state.health = 15.0;
+
+        service.savePlayerStateSync(profile, uuid, state);
+        assertNotNull(service.loadPlayerStateFromFile(profile, uuid));
+
+        service.deleteWorldData(key);
+        Thread.sleep(100);
+
+        assertNull(service.loadPlayerStateFromFile(profile, uuid));
     }
 
     @Test
