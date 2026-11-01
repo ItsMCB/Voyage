@@ -183,6 +183,75 @@ public class PlayerProfileService {
         }
     }
 
+    private synchronized void savePlayerStatesToDatabaseBatch(String profileId, Map<UUID, PlayerStateSerializer.PlayerState> states) throws SQLException {
+        if (states == null || states.isEmpty()) return;
+
+        // Preserve offline locations from previous sessions
+        for (PlayerStateSerializer.PlayerState state : states.values()) {
+            if (state.worldLocations == null) {
+                state.worldLocations = new HashMap<>();
+            }
+            if (state.lastLocWorld != null) {
+                state.worldLocations.put(state.lastLocWorld, new PlayerStateSerializer.LocationData(
+                        state.lastLocX, state.lastLocY, state.lastLocZ, state.lastLocYaw, state.lastLocPitch));
+            }
+        }
+
+        String upsertSql = """
+            INSERT INTO voyage_player_profiles (profile_id, player_uuid, state_json, last_updated)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(profile_id, player_uuid) DO UPDATE SET
+                state_json = excluded.state_json,
+                last_updated = excluded.last_updated;
+        """;
+
+        long now = System.currentTimeMillis();
+        try (Connection conn = databaseService.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                // Check if any of these players already have stored state to merge existing world locations
+                try (PreparedStatement selectPs = conn.prepareStatement(
+                        "SELECT player_uuid, state_json FROM voyage_player_profiles WHERE profile_id = ?;")) {
+                    selectPs.setString(1, profileId);
+                    try (ResultSet rs = selectPs.executeQuery()) {
+                        while (rs.next()) {
+                            try {
+                                UUID playerUuid = UUID.fromString(rs.getString("player_uuid"));
+                                PlayerStateSerializer.PlayerState state = states.get(playerUuid);
+                                if (state != null) {
+                                    String existingJson = rs.getString("state_json");
+                                    PlayerStateSerializer.PlayerState existing = gson.fromJson(existingJson, PlayerStateSerializer.PlayerState.class);
+                                    if (existing != null && existing.worldLocations != null) {
+                                        for (Map.Entry<String, PlayerStateSerializer.LocationData> entry : existing.worldLocations.entrySet()) {
+                                            state.worldLocations.putIfAbsent(entry.getKey(), entry.getValue());
+                                        }
+                                    }
+                                }
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(upsertSql)) {
+                    for (Map.Entry<UUID, PlayerStateSerializer.PlayerState> entry : states.entrySet()) {
+                        ps.setString(1, profileId);
+                        ps.setString(2, entry.getKey().toString());
+                        ps.setString(3, gson.toJson(entry.getValue()));
+                        ps.setLong(4, now);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+                conn.commit();
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        }
+    }
+
     public void savePlayerStateAsync(String profileId, UUID uuid, PlayerStateSerializer.PlayerState state) {
         ProfileKey key = new ProfileKey(profileId, uuid);
         pendingWrites.put(key, state);
@@ -232,6 +301,46 @@ public class PlayerProfileService {
             context.getPlugin().getLogger().log(Level.SEVERE, "Failed sync player save for " + uuid, e);
         } finally {
             pendingWrites.remove(key, state);
+        }
+    }
+
+    public void savePlayerStatesSync(String profileId, Map<UUID, PlayerStateSerializer.PlayerState> states) {
+        if (states == null || states.isEmpty()) return;
+
+        for (Map.Entry<UUID, PlayerStateSerializer.PlayerState> entry : states.entrySet()) {
+            pendingWrites.put(new ProfileKey(profileId, entry.getKey()), entry.getValue());
+        }
+
+        if (!profileWriter.isShutdown()) {
+            try {
+                profileWriter.submit(() -> {
+                    try {
+                        savePlayerStatesToDatabaseBatch(profileId, states);
+                    } catch (SQLException e) {
+                        context.getPlugin().getLogger().log(Level.SEVERE, "Failed sync batch player save task for " + profileId, e);
+                    } finally {
+                        for (UUID uuid : states.keySet()) {
+                            ProfileKey key = new ProfileKey(profileId, uuid);
+                            scheduledWrites.remove(key);
+                            pendingWrites.remove(key);
+                        }
+                    }
+                }).get(30, TimeUnit.SECONDS);
+                return;
+            } catch (Exception ignored) {}
+        }
+
+        for (UUID uuid : states.keySet()) {
+            scheduledWrites.remove(new ProfileKey(profileId, uuid));
+        }
+        try {
+            savePlayerStatesToDatabaseBatch(profileId, states);
+        } catch (SQLException e) {
+            context.getPlugin().getLogger().log(Level.SEVERE, "Failed sync batch player save for " + profileId, e);
+        } finally {
+            for (UUID uuid : states.keySet()) {
+                pendingWrites.remove(new ProfileKey(profileId, uuid));
+            }
         }
     }
 

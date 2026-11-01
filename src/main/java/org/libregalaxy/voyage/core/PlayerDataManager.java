@@ -135,6 +135,11 @@ public class PlayerDataManager implements Listener {
         profileService.savePlayerStateSync(profileId, playerUuid, state);
     }
 
+    public void setPlayerProfileStates(@NotNull NamespacedKey worldKey, @NotNull Map<UUID, PlayerStateSerializer.PlayerState> states) {
+        String profileId = getProfileId(worldKey);
+        profileService.savePlayerStatesSync(profileId, states);
+    }
+
     /**
      * All players with stored state in this world's data profile. The vanilla
      * world export uses this to write playerdata/&lt;uuid&gt;.dat entries.

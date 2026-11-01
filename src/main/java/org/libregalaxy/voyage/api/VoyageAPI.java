@@ -18,6 +18,7 @@ import org.libregalaxy.voyage.core.PlayerStateSerializer;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -290,6 +291,16 @@ public interface VoyageAPI {
      * governing the specified worldKey.
      */
     void setPlayerProfileState(@NotNull NamespacedKey worldKey, @NotNull UUID playerUuid, @NotNull PlayerStateSerializer.PlayerState state);
+
+    /**
+     * Persists multiple player profile states directly into the database for the profile
+     * governing the specified worldKey in a single batch operation.
+     */
+    default void setPlayerProfileStates(@NotNull NamespacedKey worldKey, @NotNull Map<UUID, PlayerStateSerializer.PlayerState> states) {
+        for (Map.Entry<UUID, PlayerStateSerializer.PlayerState> entry : states.entrySet()) {
+            setPlayerProfileState(worldKey, entry.getKey(), entry.getValue());
+        }
+    }
 
     enum DataLinkMergeStrategy {
         SOURCE_PRIORITY,
