@@ -70,19 +70,20 @@ public class VoyageDatabaseService {
         HikariConfig config = new HikariConfig();
         config.setPoolName("Voyage-SQLite-Pool");
         config.setDriverClassName("org.sqlite.JDBC");
-        config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
+        config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath() + "?busy_timeout=10000");
 
         config.setMaximumPoolSize(4);
         config.setMinimumIdle(1);
         config.setConnectionTimeout(10000);
         config.setIdleTimeout(60000);
 
-        config.setConnectionInitSql(
-                "PRAGMA journal_mode = WAL;\n" +
-                        "PRAGMA synchronous = NORMAL;\n" +
-                        "PRAGMA busy_timeout = 8000;\n" +
-                        "PRAGMA foreign_keys = ON;"
-        );
+        // Configure PRAGMAs directly as DataSource properties so the driver native C-handler enforces them
+        config.addDataSourceProperty("busy_timeout", "10000");
+        config.addDataSourceProperty("journal_mode", "WAL");
+        config.addDataSourceProperty("synchronous", "NORMAL");
+        config.addDataSourceProperty("foreign_keys", "ON");
+
+        config.setConnectionInitSql("PRAGMA busy_timeout = 10000;");
 
         this.dataSource = new HikariDataSource(config);
     }
@@ -90,6 +91,12 @@ public class VoyageDatabaseService {
     private void applySchema() {
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
+
+            // Ensure database-level PRAGMAs are executed individually upon initialization
+            stmt.execute("PRAGMA journal_mode = WAL;");
+            stmt.execute("PRAGMA synchronous = NORMAL;");
+            stmt.execute("PRAGMA busy_timeout = 10000;");
+            stmt.execute("PRAGMA foreign_keys = ON;");
 
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS voyage_worlds (

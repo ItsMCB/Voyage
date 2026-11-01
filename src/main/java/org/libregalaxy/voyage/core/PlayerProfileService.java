@@ -197,6 +197,32 @@ public class PlayerProfileService {
             }
         }
 
+        // 1. Read existing states in clean auto-commit mode to merge locations without holding a deferred transaction lock
+        try (Connection conn = databaseService.getConnection();
+             PreparedStatement selectPs = conn.prepareStatement(
+                     "SELECT player_uuid, state_json FROM voyage_player_profiles WHERE profile_id = ?;")) {
+            selectPs.setString(1, profileId);
+            try (ResultSet rs = selectPs.executeQuery()) {
+                while (rs.next()) {
+                    try {
+                        UUID playerUuid = UUID.fromString(rs.getString("player_uuid"));
+                        PlayerStateSerializer.PlayerState state = states.get(playerUuid);
+                        if (state != null) {
+                            String existingJson = rs.getString("state_json");
+                            PlayerStateSerializer.PlayerState existing = gson.fromJson(existingJson, PlayerStateSerializer.PlayerState.class);
+                            if (existing != null && existing.worldLocations != null) {
+                                for (Map.Entry<String, PlayerStateSerializer.LocationData> entry : existing.worldLocations.entrySet()) {
+                                    state.worldLocations.putIfAbsent(entry.getKey(), entry.getValue());
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (SQLException e) {
+            context.getPlugin().getLogger().log(Level.FINE, "Could not check prior world locations for profile " + profileId, e);
+        }
+
         String upsertSql = """
             INSERT INTO voyage_player_profiles (profile_id, player_uuid, state_json, last_updated)
             VALUES (?, ?, ?, ?)
@@ -206,32 +232,12 @@ public class PlayerProfileService {
         """;
 
         long now = System.currentTimeMillis();
-        try (Connection conn = databaseService.getConnection()) {
-            conn.setAutoCommit(false);
-            try {
-                // Check if any of these players already have stored state to merge existing world locations
-                try (PreparedStatement selectPs = conn.prepareStatement(
-                        "SELECT player_uuid, state_json FROM voyage_player_profiles WHERE profile_id = ?;")) {
-                    selectPs.setString(1, profileId);
-                    try (ResultSet rs = selectPs.executeQuery()) {
-                        while (rs.next()) {
-                            try {
-                                UUID playerUuid = UUID.fromString(rs.getString("player_uuid"));
-                                PlayerStateSerializer.PlayerState state = states.get(playerUuid);
-                                if (state != null) {
-                                    String existingJson = rs.getString("state_json");
-                                    PlayerStateSerializer.PlayerState existing = gson.fromJson(existingJson, PlayerStateSerializer.PlayerState.class);
-                                    if (existing != null && existing.worldLocations != null) {
-                                        for (Map.Entry<String, PlayerStateSerializer.LocationData> entry : existing.worldLocations.entrySet()) {
-                                            state.worldLocations.putIfAbsent(entry.getKey(), entry.getValue());
-                                        }
-                                    }
-                                }
-                            } catch (Exception ignored) {}
-                        }
-                    }
-                }
 
+        // 2. Open connection strictly for the write transaction with retry backoff for transient SQLite locks
+        int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try (Connection conn = databaseService.getConnection()) {
+                conn.setAutoCommit(false);
                 try (PreparedStatement ps = conn.prepareStatement(upsertSql)) {
                     for (Map.Entry<UUID, PlayerStateSerializer.PlayerState> entry : states.entrySet()) {
                         ps.setString(1, profileId);
@@ -241,13 +247,22 @@ public class PlayerProfileService {
                         ps.addBatch();
                     }
                     ps.executeBatch();
+                    conn.commit();
+                    return; // Successfully committed batch
+                } catch (SQLException ex) {
+                    conn.rollback();
+                    if (attempt == maxAttempts || !ex.getMessage().toLowerCase().contains("locked")) {
+                        throw ex;
+                    }
+                    try {
+                        Thread.sleep(100L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw ex;
+                    }
+                } finally {
+                    conn.setAutoCommit(true);
                 }
-                conn.commit();
-            } catch (SQLException ex) {
-                conn.rollback();
-                throw ex;
-            } finally {
-                conn.setAutoCommit(true);
             }
         }
     }
