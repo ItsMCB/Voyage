@@ -713,8 +713,6 @@ public class WorldImportService {
                         ? flatJsonToNbt(genInfo.generatorSettingsJson())
                         : CompoundBinaryTag.empty();
                 genTag.put("settings", settings);
-            } else if (genInfo.generatorPluginName() != null) {
-                genTag.putString("type", genInfo.generatorPluginName());
             } else {
                 genTag.putString("type", "minecraft:noise");
                 String noiseSettings = switch (genInfo.environment()) {
@@ -749,10 +747,26 @@ public class WorldImportService {
                     .put("generator", genTag.build())
                     .build();
 
-            CompoundBinaryTag dimsTag = CompoundBinaryTag.builder()
+            CompoundBinaryTag.Builder dimsTagBuilder = CompoundBinaryTag.builder()
                     .put(worldKey.asString(), dimTag)
-                    .put(dimType, dimTag)
-                    .build();
+                    .put(dimType, dimTag);
+
+            if (!dimType.equals("minecraft:overworld")) {
+                CompoundBinaryTag overworldDim = CompoundBinaryTag.builder()
+                        .putString("type", "minecraft:overworld")
+                        .put("generator", CompoundBinaryTag.builder()
+                                .putString("type", "minecraft:noise")
+                                .putString("settings", "minecraft:overworld")
+                                .put("biome_source", CompoundBinaryTag.builder()
+                                        .putString("type", "minecraft:multi_noise")
+                                        .putString("preset", "minecraft:overworld")
+                                        .build())
+                                .build())
+                        .build();
+                dimsTagBuilder.put("minecraft:overworld", overworldDim);
+            }
+
+            CompoundBinaryTag dimsTag = dimsTagBuilder.build();
 
             CompoundBinaryTag dataTag = CompoundBinaryTag.builder()
                     .putLong("seed", genInfo.seed())

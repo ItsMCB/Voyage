@@ -423,4 +423,52 @@ class WorldImportServiceTest {
         assertEquals(12345L, wgsFromLevel.getLong("seed"));
         assertEquals((byte) 0, wgsFromLevel.getByte("generate_structures"));
     }
+
+    @Test
+    void writeDimensionGenFiles_withCustomPluginGenerator_writesValidVanillaNbtAndOverworldStem() throws Exception {
+        Path dimDir = tempDir.resolve("dimensions/temp/test");
+        Files.createDirectories(dimDir);
+
+        WorldImportService service = new WorldImportService(null, null);
+
+        WorldImportService.DimensionGenInfo genInfo = new WorldImportService.DimensionGenInfo(
+                WorldType.NORMAL,
+                null,
+                "OldGenerator:b173",
+                World.Environment.NORMAL,
+                6644803604819148923L,
+                true
+        );
+
+        WorldImportService.ParsedWorldData data = new WorldImportService.ParsedWorldData(
+                null,
+                4671,
+                6644803604819148923L,
+                true,
+                java.util.Map.of("temp:test", genInfo)
+        );
+
+        service.writeDimensionGenFiles(dimDir, NamespacedKey.fromString("temp:test"), genInfo, data);
+
+        Path wgsPath = dimDir.resolve("data/minecraft/world_gen_settings.dat");
+        Path levelDatPath = dimDir.resolve("level.dat");
+
+        assertTrue(Files.exists(wgsPath));
+        assertTrue(Files.exists(levelDatPath));
+
+        CompoundBinaryTag wgsRoot = BinaryTagIO.reader().read(wgsPath, BinaryTagIO.Compression.GZIP);
+        CompoundBinaryTag wgsData = wgsRoot.getCompound("data");
+        CompoundBinaryTag dimensions = wgsData.getCompound("dimensions");
+
+        // The generator.type in NBT must be the valid vanilla type "minecraft:noise", NEVER the raw plugin string
+        CompoundBinaryTag targetDim = dimensions.getCompound("temp:test");
+        assertEquals("minecraft:noise", targetDim.getCompound("generator").getString("type"),
+                "Generator type in NBT must be a valid Mojang NMS generator type");
+        assertTrue(targetDim.getCompound("generator").keySet().contains("biome_source"),
+                "Noise generator must include valid biome_source for Mojang's codec");
+
+        // minecraft:overworld must always exist in dimensions so WorldDimensions.<init> never throws
+        assertTrue(dimensions.keySet().contains("minecraft:overworld"),
+                "WorldGenSettings.dimensions must contain minecraft:overworld");
+    }
 }

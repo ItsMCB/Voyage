@@ -33,7 +33,7 @@ import java.util.Optional;
 public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
 
     private final VexelArg<NamespacedKey> KEY_ARG;
-    private final VexelFlags creationFlags;
+    final VexelFlags creationFlags;
     private final VexelArg<String> FLAGS_ARG;
 
     public CreateScmd(@NotNull VoyageContext context) {
@@ -56,6 +56,9 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
                         .alias("e"))
                 .flag(VexelFlag.valued("seed", "World seed")
                         .alias("s"))
+                .flag(VexelFlag.valued("generator", "Custom chunk generator (e.g., OldGenerator:b173)")
+                        .alias("gen"))
+                .flag(VexelFlag.valued("generator-settings", "Generator settings JSON or string"))
                 .flag(VexelFlag.valued("difficulty", "Dimension difficulty", List.of("PEACEFUL", "EASY", "NORMAL", "HARD"))
                         .alias("d"))
                 .flag(VexelFlag.booleanFlag("no-structures", "Disable structure generation"))
@@ -85,7 +88,7 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
                 .build();
 
         this.FLAGS_ARG = creationFlags.asArg("flags",
-                "Optional flags: --preset <name>, --environment <env>, --seed <seed>, --difficulty <diff>, --no-structures, --spawn <x> <y> <z>, --gamerule <name> <value>");
+                "Optional flags: --preset <name>, --environment <env>, --seed <seed>, --generator <gen>, --generator-settings <settings>, --difficulty <diff>, --no-structures, --spawn <x> <y> <z>, --gamerule <name> <value>");
     }
 
     @Override public @NotNull List<VexelArg<?>> getArguments() { return List.of(KEY_ARG, FLAGS_ARG); }
@@ -100,6 +103,8 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
 
         World.Environment env = null;
         String seedStr = null;
+        String generator = null;
+        String generatorSettings = null;
         Difficulty difficulty = null;
         boolean generateStructures = true;
         int[] spawn = null;
@@ -122,6 +127,16 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
         Optional<String> seedOpt = flags.getValue("seed");
         if (seedOpt.isPresent()) {
             seedStr = seedOpt.get();
+        }
+
+        Optional<String> genOpt = flags.getValue("generator");
+        if (genOpt.isPresent()) {
+            generator = genOpt.get();
+        }
+
+        Optional<String> genSettingsOpt = flags.getValue("generator-settings");
+        if (genSettingsOpt.isPresent()) {
+            generatorSettings = genSettingsOpt.get();
         }
 
         Optional<String> diffOpt = flags.getValue("difficulty");
@@ -178,6 +193,8 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
         if (presetName != null) builder.preset(presetName);
         if (env != null) builder.environment(env);
         if (seedStr != null) builder.seed(seedStr);
+        if (generator != null) builder.generator(generator);
+        if (generatorSettings != null) builder.generatorSettings(generatorSettings);
         if (difficulty != null) builder.difficulty(difficulty);
         builder.generateStructures(generateStructures);
         if (spawn != null) builder.spawn(spawn[0], spawn[1], spawn[2]);
