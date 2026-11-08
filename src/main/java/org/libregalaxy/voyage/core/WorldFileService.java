@@ -7,17 +7,19 @@ import org.bukkit.World;
 import org.bukkit.WorldType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.core.migration.LevelDatNbt;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public class WorldFileService {
 
@@ -81,8 +83,7 @@ public class WorldFileService {
             }
         }
 
-        // CRITICAL FIX FOR WORLD CLONING:
-        // Always default to modernCanonical (./world/dimensions/<ns>/<key>) so Paper loads the copied chunks!
+        // Always default to modernCanonical (./world/dimensions/<ns>/<key>) so Paper loads the copied chunks
         return modernCanonical;
     }
 
@@ -127,21 +128,31 @@ public class WorldFileService {
         return future;
     }
 
-    private void deleteDirectoryWithRetry(Path path, int attemptsLeft, CompletableFuture<Void> future) {
+    public void deleteDirectoryWithRetry(Path path, int attemptsLeft, CompletableFuture<Void> future) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
                 if (Files.exists(path)) {
                     Files.walkFileTree(path, new SimpleFileVisitor<>() {
                         @Override
                         public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                            Files.deleteIfExists(file);
+                            try {
+                                Files.deleteIfExists(file);
+                            } catch (IOException e) {
+                                file.toFile().setWritable(true);
+                                Files.deleteIfExists(file);
+                            }
                             return FileVisitResult.CONTINUE;
                         }
 
                         @Override
                         public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
                             if (exc != null) throw exc;
-                            Files.deleteIfExists(dir);
+                            try {
+                                Files.deleteIfExists(dir);
+                            } catch (IOException e) {
+                                dir.toFile().setWritable(true);
+                                Files.deleteIfExists(dir);
+                            }
                             return FileVisitResult.CONTINUE;
                         }
                     });
@@ -172,6 +183,76 @@ public class WorldFileService {
                 }
             }
         });
+    }
+
+    /**
+     * Safely unpacks a zip archive into targetDir with canonical path verification to prevent ZipSlip attacks.
+     */
+    public void extractZipArchive(@NotNull Path zipFile, @NotNull Path targetDir) throws IOException {
+        String zipName = zipFile.getFileName().toString();
+        Path canonicalTargetDir = targetDir.toAbsolutePath().normalize();
+
+        if (!Files.exists(canonicalTargetDir)) {
+            Files.createDirectories(canonicalTargetDir);
+        }
+
+        try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(Files.newInputStream(zipFile)))) {
+            ZipEntry entry;
+            byte[] buf = new byte[8192];
+            while ((entry = zis.getNextEntry()) != null) {
+                String rawName = entry.getName().replace('\\', '/');
+
+                while (rawName.startsWith("/") || rawName.startsWith("./")) {
+                    if (rawName.startsWith("/")) {
+                        rawName = rawName.substring(1);
+                    } else {
+                        rawName = rawName.substring(2);
+                    }
+                }
+
+                if (rawName.isBlank() || rawName.equals(".")) {
+                    zis.closeEntry();
+                    continue;
+                }
+
+                Path resolved = canonicalTargetDir.resolve(rawName).normalize();
+                if (!resolved.startsWith(canonicalTargetDir)) {
+                    throw new SecurityException("Zip slip detected in " + zipName + ": " + entry.getName());
+                }
+
+                if (entry.isDirectory()) {
+                    Files.createDirectories(resolved);
+                } else {
+                    if (resolved.getParent() != null) {
+                        Files.createDirectories(resolved.getParent());
+                    }
+                    try (OutputStream fos = new BufferedOutputStream(Files.newOutputStream(resolved))) {
+                        int len;
+                        while ((len = zis.read(buf)) != -1) {
+                            fos.write(buf, 0, len);
+                        }
+                    }
+                }
+                zis.closeEntry();
+            }
+        }
+    }
+
+    /**
+     * Renames a processed file or folder to <name>.imported to prevent re-processing.
+     */
+    public void markAsImported(@NotNull Path path) {
+        try {
+            if (!Files.exists(path)) return;
+            String name = path.getFileName().toString();
+            Path target = path.resolveSibling(name + ".imported");
+            if (Files.exists(target)) {
+                target = path.resolveSibling(name + ".imported-" + System.currentTimeMillis());
+            }
+            Files.move(path, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            plugin.getLogger().warning("Could not rename imported path " + path + ": " + e.getMessage());
+        }
     }
 
     public void ensureWorldGenFiles(@NotNull NamespacedKey worldKey, @NotNull File worldDir, @NotNull ManagedWorldImpl mw, @NotNull WorldImportService importService) {

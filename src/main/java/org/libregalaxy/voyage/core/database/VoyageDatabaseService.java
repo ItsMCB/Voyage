@@ -179,8 +179,12 @@ public class VoyageDatabaseService {
         }
     }
 
+    public boolean isActive() {
+        return dataSource != null && !dataSource.isClosed();
+    }
+
     public Connection getConnection() throws SQLException {
-        if (dataSource == null || dataSource.isClosed()) {
+        if (!isActive()) {
             throw new SQLException("Voyage database connection pool is not active.");
         }
         return dataSource.getConnection();

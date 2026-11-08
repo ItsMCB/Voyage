@@ -9,6 +9,11 @@ import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlag;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelFlags;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -26,6 +31,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
@@ -35,9 +42,11 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
     private final VexelFlags importFlags;
     private final VexelArg<String> flagsArg;
 
+    public record ImportSource(@NotNull Path dir, @Nullable Path originalZip) {}
+
     public ImportScmd(@NotNull VoyageContext context) {
         super(context, "import", "Manually upgrade and import legacy dimensions into Paper 26.x format.", "voyage.admin");
-        this.folderArg = VexelArg.builder("folder", StringArgumentType.string(), String.class, "Folder name in worlds-to-import/, or --all")
+        this.folderArg = VexelArg.builder("folder", StringArgumentType.string(), String.class, "Folder or .zip in worlds-to-import/, 'list', or --all")
                 .suggests(this::suggestFolders)
                 .build();
 
@@ -72,6 +81,11 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
             } catch (Exception e) {
                 TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Failed to create worlds-to-import directory.</red>");
             }
+            return;
+        }
+
+        if ("list".equalsIgnoreCase(target)) {
+            handleList(sender, importDir);
             return;
         }
 
@@ -143,53 +157,138 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
         final String finalGenerator = generator;
         final String finalGeneratorSettings = generatorSettings;
 
-        List<Path> toImport = getFoldersToImport(importDir, target, sender);
+        List<ImportSource> toImport = getFoldersToImport(importDir, target, sender);
         if (toImport.isEmpty()) {
-            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>No dimension folders found to import.</yellow>");
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>No dimension folders or archives found to import.</yellow>");
             return;
         }
 
-        List<ImportTask> tasks = new ArrayList<>();
-        for (Path legacyDir : toImport) {
-            tasks.addAll(expandImportTargets(legacyDir, namespace, explicitKey, sender));
+        int totalTasks = 0;
+        for (ImportSource source : toImport) {
+            totalTasks += expandImportTargets(source.dir(), namespace, explicitKey, sender).size();
         }
 
-        if (tasks.isEmpty()) {
+        if (totalTasks == 0) {
             TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>No valid world directories found to import.</yellow>");
             return;
         }
 
         TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>Starting manual upgrade and import of <white><count></white> dimension(s)...</yellow>",
-                Placeholder.unparsed("count", String.valueOf(tasks.size())));
+                Placeholder.unparsed("count", String.valueOf(totalTasks)));
 
-        for (ImportTask task : tasks) {
-            String displayKey = task.targetKey().asString();
-            String folderName = task.sourceDir().getFileName().toString();
+        CompletableFuture<Void> sourceChain = CompletableFuture.completedFuture(null);
 
-            context.getWorldManager().importWorld(
-                    task.sourceDir(),
-                    task.targetKey(),
-                    finalAutoLink,
-                    finalDataProfile,
-                    finalMergeStrategy,
-                    finalDeleteAfterImport,
-                    finalEnvironment,
-                    finalGenerator,
-                    finalGeneratorSettings
-            ).thenAccept(strategy -> {
-                TextUtils.send(sender, "<color:#e98df5>ℹ</color> <green>Successfully imported <white><folder></white> as <white><key></white>!</green> <dark_gray>(Detected: <strategy>)</dark_gray>",
-                        Placeholder.unparsed("folder", folderName),
-                        Placeholder.unparsed("key", displayKey),
-                        Placeholder.unparsed("strategy", strategy.getDisplayName()));
-                if (sender instanceof Player p) {
-                    context.getWebhookService().notify("WORLD_IMPORT", p, "Imported " + displayKey);
+        for (ImportSource source : toImport) {
+            Path legacyDir = source.dir();
+            List<ImportTask> tasks = expandImportTargets(legacyDir, namespace, explicitKey, sender);
+            if (tasks.isEmpty()) {
+                if (source.originalZip() != null) {
+                    context.getWorldManager().deleteDirectory(legacyDir.toFile());
                 }
-            }).exceptionally(ex -> {
-                Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
-                context.getPlugin().getLogger().severe("Import failed for " + folderName + ": " + cause.getMessage());
-                TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Failed to import <white><folder></white>: <error></red>", Placeholder.unparsed("folder", folderName), Placeholder.unparsed("error", cause.getMessage()));
-                return null;
+                continue;
+            }
+
+            sourceChain = sourceChain.thenCompose(v -> {
+                CompletableFuture<Void> taskChain = CompletableFuture.completedFuture(null);
+                AtomicBoolean allSucceeded = new AtomicBoolean(true);
+
+                for (ImportTask task : tasks) {
+                    String displayKey = task.targetKey().asString();
+                    String folderName = task.sourceDir().getFileName().toString();
+
+                    taskChain = taskChain.thenCompose(t -> context.getWorldManager().importWorld(
+                            task.sourceDir(),
+                            task.targetKey(),
+                            finalAutoLink,
+                            finalDataProfile,
+                            finalMergeStrategy,
+                            false, // We manage cleanup of the parent legacyDir ourselves
+                            finalEnvironment,
+                            finalGenerator,
+                            finalGeneratorSettings
+                    ).thenAccept(strategy -> {
+                        TextUtils.send(sender, "<color:#e98df5>ℹ</color> <green>Successfully imported <white><folder></white> as <white><key></white>!</green> <dark_gray>(Detected: <strategy>)</dark_gray>",
+                                Placeholder.unparsed("folder", folderName),
+                                Placeholder.unparsed("key", displayKey),
+                                Placeholder.unparsed("strategy", strategy.getDisplayName()));
+                        if (sender instanceof Player p) {
+                            context.getWebhookService().notify("WORLD_IMPORT", p, "Imported " + displayKey);
+                        }
+                    }).exceptionally(ex -> {
+                        allSucceeded.set(false);
+                        Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                        context.getPlugin().getLogger().severe("Import failed for " + folderName + ": " + cause.getMessage());
+                        TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Failed to import <white><folder></white>: <error></red>",
+                                Placeholder.unparsed("folder", folderName), Placeholder.unparsed("error", cause.getMessage()));
+                        return null;
+                    }));
+                }
+
+                return taskChain.thenRun(() -> {
+                    if (allSucceeded.get()) {
+                        if (source.originalZip() != null) {
+                            context.getWorldManager().deleteDirectory(legacyDir.toFile());
+                            context.getWorldManager().getFileService().markAsImported(source.originalZip());
+                        } else if (finalDeleteAfterImport) {
+                            context.getWorldManager().deleteDirectory(legacyDir.toFile());
+                        } else {
+                            context.getWorldManager().getFileService().markAsImported(legacyDir);
+                        }
+                    } else if (source.originalZip() != null) {
+                        // On failure, delete temporary extracted folder but keep original .zip untouched
+                        context.getWorldManager().deleteDirectory(legacyDir.toFile());
+                    }
+                });
             });
+        }
+    }
+
+    private void handleList(@NotNull CommandSender sender, @NotNull Path importDir) {
+        List<Path> entries = new ArrayList<>();
+        try (var stream = Files.list(importDir)) {
+            for (Path p : stream.sorted().toList()) {
+                String name = p.getFileName().toString();
+                if (name.endsWith(".imported") || name.equalsIgnoreCase("README.txt")) continue;
+                if (Files.isDirectory(p) || (Files.isRegularFile(p) && name.endsWith(".zip"))) {
+                    entries.add(p);
+                }
+            }
+        } catch (IOException e) {
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Failed to read worlds-to-import directory.</red>");
+            return;
+        }
+
+        if (entries.isEmpty()) {
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>No pending worlds or archives in worlds-to-import/.</yellow>");
+            return;
+        }
+
+        TextUtils.send(sender, "<dark_gray><st>          </st> <color:#e98df5>Worlds Ready for Import (<count>)</color> <st>          </st></dark_gray>",
+                Placeholder.unparsed("count", String.valueOf(entries.size())));
+
+        for (Path p : entries) {
+            String name = p.getFileName().toString();
+            boolean isZip = Files.isRegularFile(p) && name.endsWith(".zip");
+
+            String sizeStr;
+            try {
+                long sizeBytes = isZip ? Files.size(p) : Files.walk(p).filter(Files::isRegularFile).mapToLong(f -> {
+                    try { return Files.size(f); } catch (Exception ignored) { return 0L; }
+                }).sum();
+                sizeStr = InfoScmd.formatFolderSizeString(sizeBytes);
+            } catch (Exception ignored) {
+                sizeStr = "unknown";
+            }
+
+            var builder = Component.text()
+                    .append(Component.text("  • ", NamedTextColor.DARK_GRAY))
+                    .append(Component.text(name, NamedTextColor.WHITE))
+                    .append(Component.text(" [" + sizeStr + (isZip ? ", archive" : ", folder") + "] ", NamedTextColor.GRAY))
+                    .append(Component.text("[▶ Import]", NamedTextColor.AQUA, TextDecoration.BOLD, TextDecoration.UNDERLINED)
+                            .clickEvent(ClickEvent.runCommand("/world import \"" + name + "\""))
+                            .hoverEvent(HoverEvent.showText(Component.text("Click to import " + name, NamedTextColor.GRAY))));
+
+            sender.sendMessage(builder.build());
         }
     }
 
@@ -228,7 +327,17 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
 
         try (Stream<Path> stream = Files.list(sourceDir)) {
             List<Path> subDirs = stream.filter(Files::isDirectory).toList();
-            if (subDirs.size() > 1 && subDirs.stream().allMatch(d -> Files.exists(d.resolve("region")) || Files.exists(d.resolve("level.dat")))) {
+            if (subDirs.size() == 1) {
+                Path singleSub = subDirs.getFirst();
+                if (Files.isRegularFile(singleSub.resolve("level.dat")) || Files.isDirectory(singleSub.resolve("region"))) {
+                    String keyName = (explicitKey != null) ? explicitKey : sourceDir.getFileName().toString();
+                    NamespacedKey targetKey = resolveNamespacedKey(namespace, keyName);
+                    if (targetKey != null) {
+                        tasks.add(new ImportTask(singleSub, targetKey));
+                    }
+                    return tasks;
+                }
+            } else if (subDirs.size() > 1 && subDirs.stream().allMatch(d -> Files.exists(d.resolve("region")) || Files.exists(d.resolve("level.dat")))) {
                 for (Path subDir : subDirs) {
                     String keyName = subDir.getFileName().toString();
                     NamespacedKey targetKey = resolveNamespacedKey(namespace, keyName);
@@ -275,43 +384,85 @@ public class ImportScmd extends VexelSenderSubCommand<VoyageContext> {
 
     private List<String> suggestFolders() {
         List<String> options = new ArrayList<>();
+        options.add("list");
         options.add("--all");
         Path importDir = Bukkit.getWorldContainer().toPath().resolve(WORLDS_TO_IMPORT_DIR);
         if (Files.isDirectory(importDir)) {
             try (var stream = Files.list(importDir)) {
-                stream.filter(Files::isDirectory)
-                        .map(p -> p.getFileName().toString())
-                        .forEach(options::add);
+                stream.forEach(p -> {
+                    String name = p.getFileName().toString();
+                    if (!name.endsWith(".imported")) {
+                        if (Files.isDirectory(p)) {
+                            options.add(name);
+                        } else if (Files.isRegularFile(p) && name.endsWith(".zip")) {
+                            options.add(name);
+                        }
+                    }
+                });
             } catch (Exception ignored) {}
         }
         return options;
     }
 
-    private List<Path> getFoldersToImport(Path importDir, String target, CommandSender sender) {
-        List<Path> toImport = new ArrayList<>();
+    private List<ImportSource> getFoldersToImport(Path importDir, String target, CommandSender sender) {
+        List<ImportSource> toImport = new ArrayList<>();
+        Path canonicalImportDir = importDir.toAbsolutePath().normalize();
+
         if ("--all".equalsIgnoreCase(target)) {
-            try (var stream = Files.list(importDir)) {
-                stream.filter(Files::isDirectory).forEach(toImport::add);
+            try (var stream = Files.list(canonicalImportDir)) {
+                for (Path p : stream.toList()) {
+                    String name = p.getFileName().toString();
+                    if (name.endsWith(".imported")) continue;
+
+                    if (Files.isDirectory(p)) {
+                        toImport.add(new ImportSource(p, null));
+                    } else if (Files.isRegularFile(p) && name.endsWith(".zip")) {
+                        Path extracted = extractZipArchiveSafely(p, canonicalImportDir, sender);
+                        if (extracted != null) toImport.add(new ImportSource(extracted, p));
+                    }
+                }
             } catch (Exception e) {
                 context.getPlugin().getLogger().severe("Failed to list worlds-to-import directory.");
             }
         } else {
-            Path specificFolder = importDir.resolve(target).normalize();
+            Path targetPath = canonicalImportDir.resolve(target).normalize();
             try {
-                if (!specificFolder.toRealPath().startsWith(importDir.toRealPath())) {
-                    TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Invalid folder path (directory escape or symlink detected).</red>");
+                if (!targetPath.startsWith(canonicalImportDir)) {
+                    TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Invalid folder path (directory escape detected).</red>");
                     return toImport;
                 }
-            } catch (IOException e) {
+            } catch (Exception e) {
                 TextUtils.send(sender, "<red>Failed to resolve path: " + e.getMessage() + "</red>");
                 return toImport;
             }
-            if (!Files.isDirectory(specificFolder)) {
-                TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Folder <white><folder></white> not found inside worlds-to-import/.</red>", Placeholder.unparsed("folder", target));
-                return toImport;
+
+            String targetName = targetPath.getFileName().toString();
+            if (Files.isRegularFile(targetPath) && targetName.endsWith(".zip")) {
+                Path extracted = extractZipArchiveSafely(targetPath, canonicalImportDir, sender);
+                if (extracted != null) toImport.add(new ImportSource(extracted, targetPath));
+            } else if (Files.isDirectory(targetPath)) {
+                toImport.add(new ImportSource(targetPath, null));
+            } else {
+                TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Folder or .zip <white><target></white> not found inside worlds-to-import/.</red>", Placeholder.unparsed("target", target));
             }
-            toImport.add(specificFolder);
         }
         return toImport;
+    }
+
+    private @Nullable Path extractZipArchiveSafely(@NotNull Path zipFile, @NotNull Path baseDir, @NotNull CommandSender sender) {
+        String zipName = zipFile.getFileName().toString();
+        String folderName = zipName.substring(0, zipName.length() - 4);
+
+        Path canonicalBaseDir = baseDir.toAbsolutePath().normalize();
+        Path targetDir = canonicalBaseDir.resolve(folderName).normalize();
+
+        try {
+            context.getWorldManager().getFileService().extractZipArchive(zipFile, targetDir);
+            return targetDir;
+        } catch (Exception e) {
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Failed to extract archive <white><file></white>: <error></red>",
+                    Placeholder.unparsed("file", zipName), Placeholder.unparsed("error", e.getMessage()));
+            return null;
+        }
     }
 }

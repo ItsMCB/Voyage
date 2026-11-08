@@ -100,64 +100,103 @@ public interface VoyageAPI {
         return isVoidWorld(generator, generatorSettings);
     }
 
+    /**
+     * Checks whether a block is safe to stand on (non-solid, air, liquids, and environmental hazards are rejected).
+     */
+    static boolean isSafeFloor(@Nullable Block block) {
+        if (block == null) return false;
+        Material type = block.getType();
+        if (type.isAir() || !type.isSolid() || block.isLiquid()) {
+            return false;
+        }
+        return type != Material.MAGMA_BLOCK
+                && type != Material.CACTUS
+                && type != Material.CAMPFIRE
+                && type != Material.SOUL_CAMPFIRE
+                && type != Material.FIRE
+                && type != Material.SOUL_FIRE
+                && type != Material.POINTED_DRIPSTONE;
+    }
+
+    /**
+     * Checks whether a block is passable and free of hazardous substances (fire, lava, cobwebs, berry bushes, powder snow).
+     */
+    static boolean isPassableAndSafe(@Nullable Block block) {
+        if (block == null) return false;
+        Material type = block.getType();
+        if (block.isLiquid()) return false;
+        if (type == Material.FIRE || type == Material.SOUL_FIRE
+                || type == Material.SWEET_BERRY_BUSH || type == Material.WITHER_ROSE
+                || type == Material.POWDER_SNOW || type == Material.NETHER_PORTAL
+                || type == Material.END_PORTAL) {
+            return false;
+        }
+        return type.isAir() || block.isPassable();
+    }
+
+    /**
+     * Finds a safe location with a solid floor and two blocks of passable headspace,
+     * protecting players from suffocation, void falls, lava, and fire hazards.
+     */
     static @NotNull Location getSafeLocation(@NotNull Location location) {
         World world = location.getWorld();
         if (world == null) return location;
 
-        Location safe = location.clone();
-        int bx = safe.getBlockX();
-        int by = safe.getBlockY();
-        int bz = safe.getBlockZ();
+        int bx = location.getBlockX();
+        int by = Math.clamp(location.getBlockY(), world.getMinHeight() + 1, world.getMaxHeight() - 2);
+        int bz = location.getBlockZ();
 
-        Block feetBlock = world.getBlockAt(bx, by, bz);
-        Block headBlock = world.getBlockAt(bx, by + 1, bz);
-        if (feetBlock == null || headBlock == null) return safe;
+        Block floor = world.getBlockAt(bx, by - 1, bz);
+        Block feet = world.getBlockAt(bx, by, bz);
+        Block head = world.getBlockAt(bx, by + 1, bz);
 
-        Material feetMaterial = feetBlock.getType();
-        Material headMaterial = headBlock.getType();
-        if (feetMaterial == null || headMaterial == null) return safe;
+        if (isSafeFloor(floor) && isPassableAndSafe(feet) && isPassableAndSafe(head)) {
+            return location;
+        }
 
-        if (feetMaterial.isSolid() || headMaterial.isSolid()) {
-            for (int dy = 1; dy <= 64; dy++) {
-                int testY = by + dy;
-                if (testY >= world.getMaxHeight() - 1) continue;
-                Block testFeet = world.getBlockAt(bx, testY, bz);
-                Block testHead = world.getBlockAt(bx, testY + 1, bz);
-                if (testFeet == null || testHead == null) continue;
-                Material testFeetMaterial = testFeet.getType();
-                Material testHeadMaterial = testHead.getType();
-                if (testFeetMaterial == null || testHeadMaterial == null) continue;
-                if (!testFeetMaterial.isSolid() && !testHeadMaterial.isSolid()) {
-                    safe.setY(testY);
-                    return safe;
-                }
-            }
-        } else {
-            int minCheckY = Math.max(world.getMinHeight(), by - 32);
-            boolean foundGround = false;
-            for (int testY = by - 1; testY >= minCheckY; testY--) {
-                Block test = world.getBlockAt(bx, testY, bz);
-                if (test == null) continue;
-                Material testMaterial = test.getType();
-                if (testMaterial == null) continue;
-                if (testMaterial.isSolid()) {
-                    safe.setY(testY + 1);
-                    foundGround = true;
-                    break;
-                }
-            }
-            if (!foundGround) {
-                Block below = world.getBlockAt(safe.getBlockX(), safe.getBlockY() - 1, safe.getBlockZ());
-                if (below != null) {
-                    Material belowMaterial = below.getType();
-                    if (belowMaterial != null && belowMaterial.isAir() && Bukkit.isPrimaryThread()) {
-                        below.setType(Material.BEDROCK);
-                    }
+        // 1. If buried in solid blocks or suffocating, scan upward first
+        if (!isPassableAndSafe(feet) || !isPassableAndSafe(head)) {
+            int maxCheckY = Math.min(world.getMaxHeight() - 2, by + 64);
+            for (int y = by + 1; y <= maxCheckY; y++) {
+                if (isSafeFloor(world.getBlockAt(bx, y - 1, bz))
+                        && isPassableAndSafe(world.getBlockAt(bx, y, bz))
+                        && isPassableAndSafe(world.getBlockAt(bx, y + 1, bz))) {
+                    Location adjusted = location.clone();
+                    adjusted.setY(y);
+                    return adjusted;
                 }
             }
         }
 
-        return safe;
+        // 2. Scan downward towards world min height for solid ground
+        for (int y = by - 1; y >= world.getMinHeight() + 1; y--) {
+            if (isSafeFloor(world.getBlockAt(bx, y - 1, bz))
+                    && isPassableAndSafe(world.getBlockAt(bx, y, bz))
+                    && isPassableAndSafe(world.getBlockAt(bx, y + 1, bz))) {
+                Location adjusted = location.clone();
+                adjusted.setY(y);
+                return adjusted;
+            }
+        }
+
+        // 3. Scan upward to world max height
+        for (int y = by + 1; y < world.getMaxHeight() - 1; y++) {
+            if (isSafeFloor(world.getBlockAt(bx, y - 1, bz))
+                    && isPassableAndSafe(world.getBlockAt(bx, y, bz))
+                    && isPassableAndSafe(world.getBlockAt(bx, y + 1, bz))) {
+                Location adjusted = location.clone();
+                adjusted.setY(y);
+                return adjusted;
+            }
+        }
+
+        // 4. Fallback to world spawn point
+        Location fallback = world.getSpawnLocation().clone();
+        fallback.setX(fallback.getBlockX() + 0.5);
+        fallback.setZ(fallback.getBlockZ() + 0.5);
+        fallback.setYaw(location.getYaw());
+        fallback.setPitch(location.getPitch());
+        return fallback;
     }
 
     static @NotNull Location getSafeSpawnLocation(@NotNull World world) {
@@ -256,13 +295,21 @@ public interface VoyageAPI {
     default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                 @Nullable java.util.UUID primaryPlayer,
                                                 @Nullable String displayName) {
-        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true);
+        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true, true);
     }
 
     default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                 @Nullable java.util.UUID primaryPlayer,
                                                 @Nullable String displayName,
                                                 boolean includeRootFolder) {
+        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, includeRootFolder, true);
+    }
+
+    default CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
+                                                @Nullable java.util.UUID primaryPlayer,
+                                                @Nullable String displayName,
+                                                boolean includeRootFolder,
+                                                boolean includePlayerData) {
         return exportWorld(worldKey, targetZipFile);
     }
 

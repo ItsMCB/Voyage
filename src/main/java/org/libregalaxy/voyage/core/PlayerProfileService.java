@@ -15,11 +15,8 @@ import org.libregalaxy.voyage.core.database.VoyageDatabaseService;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -538,14 +535,16 @@ public class PlayerProfileService {
 
         String folderName = profileId.replace(":", "_");
         File targetFolder = new File(profilesDir, folderName);
-        deleteDirectoryRecursively(targetFolder);
+        if (targetFolder.exists()) {
+            context.getWorldManager().deleteDirectory(targetFolder);
+        }
 
         if (folderName.startsWith("isolated_")) {
             File alt = new File(profilesDir, folderName.substring("isolated_".length()));
-            deleteDirectoryRecursively(alt);
+            if (alt.exists()) context.getWorldManager().deleteDirectory(alt);
         } else if (folderName.startsWith("group_")) {
             File alt = new File(profilesDir, folderName.substring("group_".length()));
-            deleteDirectoryRecursively(alt);
+            if (alt.exists()) context.getWorldManager().deleteDirectory(alt);
         }
 
         try {
@@ -561,27 +560,6 @@ public class PlayerProfileService {
                 }
             }
         } catch (Exception ignored) {}
-    }
-
-    private void deleteDirectoryRecursively(@Nullable File folder) {
-        if (folder == null || !folder.exists()) return;
-        try {
-            Files.walkFileTree(folder.toPath(), new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    Files.deleteIfExists(file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                    Files.deleteIfExists(dir);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (IOException e) {
-            context.getPlugin().getLogger().warning("Failed to delete profile directory: " + folder.getAbsolutePath() + ": " + e.getMessage());
-        }
     }
 
     public VoyageAPI.DataLinkPreview previewProfileMerge(NamespacedKey worldKey, String targetProfileIdRaw, VoyageAPI.DataLinkMergeStrategy strategy) {

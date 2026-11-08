@@ -17,6 +17,13 @@ database:
     # Destination folder inside plugins/Voyage/
     folder: "backups/voyage"
 
+# World Export Archive Settings
+export:
+  # Maximum number of recent .zip exports to retain in exports/ before pruning
+  max-retained: 5
+  # Maximum age in days before an export is automatically pruned (0 to disable)
+  retention-days: 7
+
 # Memory Optimization: Idle World Eviction
 # Automatically unmounts worlds when empty to keep RAM footprint low at 1,000+ planets
 eviction:

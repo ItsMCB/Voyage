@@ -99,6 +99,7 @@ public class VoyageWorldManager implements VoyageAPI {
     public VoyageContext getContext() { return context; }
     public Map<NamespacedKey, ManagedWorldImpl> getRegistry() { return registry; }
     public WorldDirectoryWatcher getDirectoryWatcher() { return directoryWatcher; }
+    public WorldFileService getFileService() { return fileService; }
 
     public boolean claimBuild(NamespacedKey key) { return buildingWorlds.add(key); }
     public void releaseBuild(NamespacedKey key) { buildingWorlds.remove(key); }
@@ -575,20 +576,28 @@ public class VoyageWorldManager implements VoyageAPI {
 
     @Override
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile) {
-        return exportService.exportWorld(worldKey, targetZipFile, null, null);
+        return exportService.exportWorld(worldKey, targetZipFile, null, null, true, true);
     }
 
     @Override
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                @Nullable UUID primaryPlayer, @Nullable String displayName) {
-        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true);
+        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true, true);
     }
 
     @Override
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                @Nullable UUID primaryPlayer, @Nullable String displayName,
                                                boolean includeRootFolder) {
-        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, includeRootFolder);
+        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, includeRootFolder, true);
+    }
+
+    @Override
+    public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
+                                               @Nullable UUID primaryPlayer, @Nullable String displayName,
+                                               boolean includeRootFolder,
+                                               boolean includePlayerData) {
+        return exportService.exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, includeRootFolder, includePlayerData);
     }
 
     @Override

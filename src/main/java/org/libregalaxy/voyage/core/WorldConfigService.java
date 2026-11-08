@@ -31,6 +31,10 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 /**
@@ -42,6 +46,9 @@ public class WorldConfigService {
     private final JavaPlugin plugin;
     private final VoyageWorldManager manager;
     private final VoyageDatabaseService databaseService;
+
+    private final Map<NamespacedKey, ManagedWorldImpl> pendingSaves = new ConcurrentHashMap<>();
+    private final ExecutorService configWriter = Executors.newSingleThreadExecutor(r -> new Thread(r, "Voyage-WorldConfig-Writer"));
 
     public WorldConfigService(@NotNull JavaPlugin plugin,
                               @NotNull VoyageWorldManager manager,
@@ -63,22 +70,54 @@ public class WorldConfigService {
         }
     }
 
-    public void shutdown() {}
+    public void shutdown() {
+        configWriter.shutdown();
+        try {
+            if (!configWriter.awaitTermination(5, TimeUnit.SECONDS)) {
+                forceFlushPendingSaves();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public void forceFlushPendingSaves() {
+        if (databaseService == null || !databaseService.isActive()) {
+            pendingSaves.clear();
+            return;
+        }
+        for (NamespacedKey key : new ArrayList<>(pendingSaves.keySet())) {
+            ManagedWorldImpl toSave = pendingSaves.remove(key);
+            if (toSave != null && databaseService.isActive()) {
+                try {
+                    saveWorldSync(toSave);
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.SEVERE, "Failed to force-flush world to database: " + key, e);
+                }
+            }
+        }
+    }
 
     public void saveWorldAsync(@NotNull ManagedWorldImpl mw) {
-        if (mw.isTemporary() || databaseService == null) return;
+        if (mw.isTemporary() || databaseService == null || !databaseService.isActive()) return;
 
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                saveWorldSync(mw);
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to save world to database: " + mw.getKey(), e);
-            }
-        });
+        pendingSaves.put(mw.getKey(), mw);
+        if (!configWriter.isShutdown()) {
+            configWriter.submit(() -> {
+                ManagedWorldImpl toSave = pendingSaves.remove(mw.getKey());
+                if (toSave != null && databaseService.isActive()) {
+                    try {
+                        saveWorldSync(toSave);
+                    } catch (SQLException e) {
+                        plugin.getLogger().log(Level.SEVERE, "Failed to save world to database: " + toSave.getKey(), e);
+                    }
+                }
+            });
+        }
     }
 
     public synchronized void saveWorldSync(@NotNull ManagedWorldImpl mw) throws SQLException {
-        if (mw.isTemporary() || databaseService == null) return;
+        if (mw.isTemporary() || databaseService == null || !databaseService.isActive()) return;
 
         NamespacedKey key = mw.getKey();
         boolean isVoid = VoyageAPI.isVoidWorld(mw.getGenerator().orElse(null), mw.getGeneratorSettings().orElse(null));
@@ -245,8 +284,11 @@ public class WorldConfigService {
     }
 
     public void deleteWorld(@NotNull NamespacedKey key) {
-        if (databaseService == null) return;
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        if (databaseService == null || !databaseService.isActive()) return;
+        pendingSaves.remove(key);
+
+        Runnable deleteTask = () -> {
+            if (!databaseService.isActive()) return;
             try (Connection conn = databaseService.getConnection()) {
                 conn.setAutoCommit(false);
                 try {
@@ -291,7 +333,13 @@ public class WorldConfigService {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.SEVERE, "Failed to remove world from database: " + key, e);
             }
-        });
+        };
+
+        if (!configWriter.isShutdown()) {
+            configWriter.submit(deleteTask);
+        } else {
+            deleteTask.run();
+        }
     }
 
     public void loadState(boolean isReload) {

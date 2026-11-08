@@ -31,7 +31,7 @@ public class VoyageWorldListener implements Listener {
         worldManager.getManagedWorld(event.getWorld().getKey()).ifPresent(mw -> {
             if (mw instanceof ManagedWorldImpl impl && mw.getDifficulty() != event.getDifficulty()) {
                 impl.setDifficultyInternal(event.getDifficulty());
-                worldManager.saveState();
+                worldManager.saveWorld(impl);
             }
         });
     }
@@ -45,7 +45,7 @@ public class VoyageWorldListener implements Listener {
                 Object parsedVal = WorldConfigService.parseGameRuleValue(rule, valStr);
                 if (parsedVal != null) {
                     impl.setGameRuleInternal(rule, parsedVal);
-                    worldManager.saveState();
+                    worldManager.saveWorld(impl);
                 }
             }
         });

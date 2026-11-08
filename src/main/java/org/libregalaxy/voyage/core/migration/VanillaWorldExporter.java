@@ -1,5 +1,7 @@
 package org.libregalaxy.voyage.core.migration;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import net.kyori.adventure.nbt.BinaryTag;
 import net.kyori.adventure.nbt.BinaryTagIO;
 import net.kyori.adventure.nbt.BinaryTagTypes;
@@ -10,10 +12,12 @@ import net.kyori.adventure.nbt.StringBinaryTag;
 import org.bukkit.Bukkit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.libregalaxy.voyage.core.VoyageWorldExportData;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,6 +45,7 @@ public final class VanillaWorldExporter {
     private static final String MODERN_PLAYERS_DATA_DIR = "players/data";
     private static final String OVERWORLD_DIM_PREFIX = "dimensions/minecraft/overworld/";
     private static final String VANILLA_OVERWORLD_KEY = "minecraft:overworld";
+    private static final String VOYAGE_CONFIG_FILE = "voyage.json";
 
     /** Server/multiplayer files with no meaning in a vanilla singleplayer save.
      *  The raw on-disk world_gen_settings.dat and world_border.dat are skipped so our sanitized versions replace them. */
@@ -64,6 +69,7 @@ public final class VanillaWorldExporter {
     ) {}
 
     private final Logger logger;
+    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     public VanillaWorldExporter(@NotNull Logger logger) {
         this.logger = logger;
@@ -71,7 +77,7 @@ public final class VanillaWorldExporter {
 
     public void export(@NotNull Path worldDir, @NotNull String name, boolean voidWorld,
                        @NotNull Path targetZip) throws IOException {
-        export(worldDir, name, null, voidWorld, List.of(), null, null, null, targetZip);
+        export(worldDir, name, null, voidWorld, List.of(), null, null, null, null, targetZip);
     }
 
     public void export(@NotNull Path worldDir, @NotNull String folderName, @Nullable String levelName,
@@ -79,7 +85,7 @@ public final class VanillaWorldExporter {
                        @NotNull List<VanillaPlayerData.ExportedPlayer> players,
                        @Nullable UUID primaryPlayer,
                        @NotNull Path targetZip) throws IOException {
-        export(worldDir, folderName, levelName, voidWorld, players, primaryPlayer, null, null, targetZip);
+        export(worldDir, folderName, levelName, voidWorld, players, primaryPlayer, null, null, null, targetZip);
     }
 
     public void export(@NotNull Path worldDir, @NotNull String folderName, @Nullable String levelName,
@@ -88,7 +94,17 @@ public final class VanillaWorldExporter {
                        @Nullable UUID primaryPlayer,
                        @Nullable WorldBorderData liveBorder,
                        @NotNull Path targetZip) throws IOException {
-        export(worldDir, folderName, levelName, voidWorld, players, primaryPlayer, liveBorder, null, targetZip);
+        export(worldDir, folderName, levelName, voidWorld, players, primaryPlayer, liveBorder, null, null, targetZip);
+    }
+
+    public void export(@NotNull Path worldDir, @NotNull String folderName, @Nullable String levelName,
+                       boolean voidWorld,
+                       @NotNull List<VanillaPlayerData.ExportedPlayer> players,
+                       @Nullable UUID primaryPlayer,
+                       @Nullable WorldBorderData liveBorder,
+                       @Nullable LiveWorldMetadata liveMetadata,
+                       @NotNull Path targetZip) throws IOException {
+        export(worldDir, folderName, levelName, voidWorld, players, primaryPlayer, liveBorder, liveMetadata, null, targetZip);
     }
 
     private static long countMcaFiles(@Nullable Path dir) {
@@ -106,6 +122,7 @@ public final class VanillaWorldExporter {
                        @Nullable UUID primaryPlayer,
                        @Nullable WorldBorderData liveBorder,
                        @Nullable LiveWorldMetadata liveMetadata,
+                       @Nullable VoyageWorldExportData voyageData,
                        @NotNull Path targetZip) throws IOException {
         if (!Files.isDirectory(worldDir)) {
             throw new IOException("World directory does not exist: " + worldDir);
@@ -311,6 +328,15 @@ public final class VanillaWorldExporter {
                     addFileEntry(zip, base + WORLD_BORDER_FILE, tempBorderDat, addedEntries);
                 }
 
+                // Inject voyage.json containing dimension settings, gamerules, portal links, and player profiles
+                if (voyageData != null) {
+                    byte[] voyageJsonBytes = voyageData.toJson(gson).getBytes(StandardCharsets.UTF_8);
+                    addRawBytesEntry(zip, base + VOYAGE_CONFIG_FILE, voyageJsonBytes, addedEntries);
+                    if (!base.isEmpty()) {
+                        addRawBytesEntry(zip, VOYAGE_CONFIG_FILE, voyageJsonBytes, addedEntries);
+                    }
+                }
+
                 // If fallback region directory was required, explicitly copy .mca files into 26.x overworld paths
                 if (!actualRegionSource.equals(regionDir) && Files.isDirectory(actualRegionSource)) {
                     putDirEntry(zip, overworldBase + "region/", addedEntries);
@@ -360,6 +386,15 @@ public final class VanillaWorldExporter {
                     Files.deleteIfExists(temp);
                 } catch (IOException ignored) {}
             }
+        }
+    }
+
+    private static void addRawBytesEntry(@NotNull ZipOutputStream zip, @NotNull String entryName,
+                                         @NotNull byte[] data, @NotNull Set<String> addedEntries) throws IOException {
+        if (addedEntries.add(entryName)) {
+            zip.putNextEntry(new ZipEntry(entryName));
+            zip.write(data);
+            zip.closeEntry();
         }
     }
 

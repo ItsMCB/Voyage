@@ -1,5 +1,6 @@
 package org.libregalaxy.voyage.core;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -20,6 +21,7 @@ import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.api.portal.PortalLink;
 import org.libregalaxy.voyage.api.portal.PortalType;
 import org.libregalaxy.voyage.api.portal.generator.NoneGenerator;
+import org.libregalaxy.voyage.api.portal.generator.StructureGenerator;
 import org.libregalaxy.voyage.api.portal.generator.VanillaNetherGenerator;
 import org.libregalaxy.voyage.api.portal.strategy.FixedSpawnStrategy;
 import org.libregalaxy.voyage.api.portal.strategy.VanillaScalingStrategy;
@@ -42,6 +44,7 @@ public class WorldImportService {
     private final VoyageWorldManager manager;
     private final WorldFormatDetector formatDetector = new WorldFormatDetector();
     private final LegacyWorldMigrator legacyMigrator;
+    private final Gson gson = new Gson();
 
     public WorldImportService(JavaPlugin plugin, VoyageWorldManager manager) {
         this.plugin = plugin;
@@ -151,6 +154,16 @@ public class WorldImportService {
                 String ns = targetKey.getNamespace();
                 String baseKey = targetKey.getKey();
 
+                // Check for modern voyage.json metadata export
+                Path voyageJsonPath = findVoyageJsonFile(sourceDir);
+                VoyageWorldExportData voyageData = (voyageJsonPath != null)
+                        ? VoyageWorldExportData.fromPath(voyageJsonPath, gson)
+                        : null;
+
+                if (voyageData != null) {
+                    plugin.getLogger().info("Found voyage.json in " + sourceDir.getFileName() + " — adopting modern dimension configuration & player states.");
+                }
+
                 ParsedWorldData parsedWorldData = parseWorldData(sourceDir, environmentOverride, generatorOverride, generatorSettingsOverride);
                 CompoundBinaryTag borderData = extractBorderData(sourceDir);
 
@@ -205,13 +218,29 @@ public class WorldImportService {
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         createAndRestoreWorld(targetKey, overworldInfo, parsedWorldData.rawLevelData(), borderData, autoLoad).thenCompose(mw -> {
                             createdKeys.add(targetKey);
+                            if (voyageData != null) {
+                                applyVoyageJsonToWorld(mw, voyageData);
+                            }
                             if (autoLink && hasNether) {
                                 mw.linkPortal(PortalType.NETHER, new PortalLink(netherKey, new VanillaScalingStrategy(8.0), new VanillaNetherGenerator()));
                             }
                             if (autoLink && hasEnd) {
                                 mw.linkPortal(PortalType.END, new PortalLink(endKey, new FixedSpawnStrategy(), new NoneGenerator()));
                             }
-                            return applyDataProfile(targetKey, dataProfileId, mergeStrategy);
+                            return applyDataProfile(targetKey, dataProfileId, mergeStrategy).thenRun(() -> {
+                                if (voyageData != null) {
+                                    var playerStatesMap = voyageData.getPlayerStatesAsUuidMap();
+                                    if (!playerStatesMap.isEmpty()) {
+                                        manager.setPlayerProfileStates(targetKey, playerStatesMap);
+                                        plugin.getLogger().info("Restored " + playerStatesMap.size() + " player profile(s) for " + targetKey.asString() + " from voyage.json.");
+                                    }
+                                }
+                            }).thenCompose(v -> {
+                                if (!autoLoad) {
+                                    return mw.unload(true).thenApply(u -> (Void) null);
+                                }
+                                return CompletableFuture.completedFuture(null);
+                            });
                         }).whenComplete((v, ex) -> completeFrom(overworldFuture, ex));
 
                         if (hasNether) {
@@ -220,7 +249,12 @@ public class WorldImportService {
                                 if (autoLink) {
                                     mw.linkPortal(PortalType.NETHER, new PortalLink(targetKey, new VanillaScalingStrategy(0.125), new VanillaNetherGenerator()));
                                 }
-                                return applyDataProfile(netherKey, dataProfileId, mergeStrategy);
+                                return applyDataProfile(netherKey, dataProfileId, mergeStrategy).thenCompose(v -> {
+                                    if (!autoLoad) {
+                                        return mw.unload(true).thenApply(u -> (Void) null);
+                                    }
+                                    return CompletableFuture.completedFuture(null);
+                                });
                             }).whenComplete((v, ex) -> completeFrom(netherFuture, ex));
                         }
 
@@ -230,7 +264,12 @@ public class WorldImportService {
                                 if (autoLink) {
                                     mw.linkPortal(PortalType.END, new PortalLink(targetKey, new FixedSpawnStrategy(), new NoneGenerator()));
                                 }
-                                return applyDataProfile(endKey, dataProfileId, mergeStrategy);
+                                return applyDataProfile(endKey, dataProfileId, mergeStrategy).thenCompose(v -> {
+                                    if (!autoLoad) {
+                                        return mw.unload(true).thenApply(u -> (Void) null);
+                                    }
+                                    return CompletableFuture.completedFuture(null);
+                                });
                             }).whenComplete((v, ex) -> completeFrom(endFuture, ex));
                         }
                     });
@@ -252,7 +291,23 @@ public class WorldImportService {
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         createAndRestoreWorld(targetKey, dimInfo, parsedWorldData.rawLevelData(), borderData, autoLoad).thenCompose(mw -> {
                             createdKeys.add(targetKey);
-                            return applyDataProfile(targetKey, dataProfileId, mergeStrategy);
+                            if (voyageData != null) {
+                                applyVoyageJsonToWorld(mw, voyageData);
+                            }
+                            return applyDataProfile(targetKey, dataProfileId, mergeStrategy).thenRun(() -> {
+                                if (voyageData != null) {
+                                    var playerStatesMap = voyageData.getPlayerStatesAsUuidMap();
+                                    if (!playerStatesMap.isEmpty()) {
+                                        manager.setPlayerProfileStates(targetKey, playerStatesMap);
+                                        plugin.getLogger().info("Restored " + playerStatesMap.size() + " player profile(s) for " + targetKey.asString() + " from voyage.json.");
+                                    }
+                                }
+                            }).thenCompose(v -> {
+                                if (!autoLoad) {
+                                    return mw.unload(true).thenApply(u -> (Void) null);
+                                }
+                                return CompletableFuture.completedFuture(null);
+                            });
                         }).whenComplete((v, ex) -> completeFrom(singleFuture, ex));
                     });
                     creationFutures.add(singleFuture);
@@ -278,6 +333,112 @@ public class WorldImportService {
         });
 
         return resultFuture;
+    }
+
+    private @Nullable Path findVoyageJsonFile(@NotNull Path sourceDir) {
+        Path direct = sourceDir.resolve("voyage.json");
+        if (Files.isRegularFile(direct)) return direct;
+        Path inWorld = sourceDir.resolve("world").resolve("voyage.json");
+        if (Files.isRegularFile(inWorld)) return inWorld;
+        if (sourceDir.getParent() != null) {
+            Path parentVoyage = sourceDir.getParent().resolve("voyage.json");
+            if (Files.isRegularFile(parentVoyage)) return parentVoyage;
+        }
+        try (var stream = Files.walk(sourceDir, 3)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().equalsIgnoreCase("voyage.json"))
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException ignored) {
+            return null;
+        }
+    }
+
+    private void applyVoyageJsonToWorld(@NotNull ManagedWorld mw, @NotNull VoyageWorldExportData data) {
+        if (data.difficulty() != null) {
+            try {
+                mw.setDifficulty(Difficulty.valueOf(data.difficulty().toUpperCase(Locale.ROOT)));
+            } catch (Exception ignored) {}
+        }
+        if (data.spawn() != null && data.spawn().length >= 3) {
+            float yaw = data.spawnAngle() != null && data.spawnAngle().length >= 1 ? data.spawnAngle()[0] : 0.0f;
+            float pitch = data.spawnAngle() != null && data.spawnAngle().length >= 2 ? data.spawnAngle()[1] : 0.0f;
+            mw.setSpawn(data.spawn()[0], data.spawn()[1], data.spawn()[2], yaw, pitch);
+        }
+        if (data.gameRules() != null && !data.gameRules().isEmpty()) {
+            World bukkitWorld = mw.getBukkitWorld().orElse(null);
+            for (Map.Entry<String, String> entry : data.gameRules().entrySet()) {
+                String snake = entry.getKey().replaceAll("([a-z])([A-Z]+)", "$1_$2").toLowerCase(Locale.ROOT);
+                String canonical = normalizeLegacyGameRule(snake);
+                NamespacedKey rk = canonical.contains(":") ? NamespacedKey.fromString(canonical) : NamespacedKey.minecraft(canonical);
+                if (rk != null) {
+                    GameRule<?> gr = Registry.GAME_RULE.get(rk);
+                    if (gr != null) {
+                        Object parsed = WorldConfigService.parseGameRuleValue(gr, entry.getValue());
+                        if (parsed != null) {
+                            if (mw instanceof ManagedWorldImpl impl) {
+                                impl.setGameRuleInternal(gr, parsed);
+                            }
+                            if (bukkitWorld != null) {
+                                try {
+                                    applyGameRuleDirectly(bukkitWorld, gr, parsed);
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                    }
+                }
+            }
+            if (mw instanceof ManagedWorldImpl impl) {
+                manager.saveWorld(impl);
+            }
+            if (bukkitWorld != null) {
+                try {
+                    bukkitWorld.save();
+                } catch (Exception ignored) {}
+            }
+        }
+        if (data.metadata() != null) {
+            data.metadata().forEach(mw::setMetadata);
+        }
+        if (data.portalLinks() != null) {
+            for (VoyageWorldExportData.PortalLinkData pl : data.portalLinks()) {
+                try {
+                    PortalType pt = PortalType.valueOf(pl.portalType().toUpperCase(Locale.ROOT));
+                    NamespacedKey tgt = NamespacedKey.fromString(pl.targetWorld());
+                    if (tgt != null) {
+                        var strat = "VANILLA_SCALING".equalsIgnoreCase(pl.strategyType())
+                                ? new VanillaScalingStrategy(pl.strategyFactor() != null ? pl.strategyFactor() : 1.0)
+                                : new FixedSpawnStrategy();
+                        var gen = "VANILLA_NETHER".equalsIgnoreCase(pl.generatorType())
+                                ? new VanillaNetherGenerator()
+                                : ("STRUCTURE".equalsIgnoreCase(pl.generatorType()) && pl.structureKey() != null
+                                ? new StructureGenerator(NamespacedKey.fromString(pl.structureKey()))
+                                : new NoneGenerator());
+                        mw.linkPortal(pt, new PortalLink(tgt, strat, gen));
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> void applyGameRuleDirectly(@NotNull World world, @NotNull GameRule<T> rule, @NotNull Object value) {
+        world.setGameRule(rule, (T) value);
+    }
+
+    private CompoundBinaryTag extractBorderData(Path legacyDir) {
+        Path borderDat = legacyDir.resolve("data").resolve("minecraft").resolve("world_border.dat");
+        if (!Files.isRegularFile(borderDat)) {
+            borderDat = legacyDir.resolve("data").resolve("world_border.dat");
+        }
+        if (!Files.isRegularFile(borderDat)) return null;
+        try {
+            CompoundBinaryTag rawBorder = LevelDatNbt.read(borderDat);
+            return rawBorder.keySet().contains("data") ? rawBorder.getCompound("data") : rawBorder;
+        } catch (IOException e) {
+            plugin.getLogger().warning("Failed to parse world_border.dat.");
+            return null;
+        }
     }
 
     private void migrateLegacyBorderOnDisk(@NotNull Path targetDir) {
@@ -830,21 +991,6 @@ public class WorldImportService {
         }
     }
 
-    private CompoundBinaryTag extractBorderData(Path legacyDir) {
-        Path borderDat = legacyDir.resolve("data").resolve("minecraft").resolve("world_border.dat");
-        if (!Files.isRegularFile(borderDat)) {
-            borderDat = legacyDir.resolve("data").resolve("world_border.dat");
-        }
-        if (!Files.isRegularFile(borderDat)) return null;
-        try {
-            CompoundBinaryTag rawBorder = LevelDatNbt.read(borderDat);
-            return rawBorder.keySet().contains("data") ? rawBorder.getCompound("data") : rawBorder;
-        } catch (IOException e) {
-            plugin.getLogger().warning("Failed to parse world_border.dat.");
-            return null;
-        }
-    }
-
     public String nbtToJson(@NotNull BinaryTag tag) {
         return switch (tag) {
             case CompoundBinaryTag compound -> {
@@ -979,7 +1125,7 @@ public class WorldImportService {
         }
 
         world.save();
-        manager.saveState();
+        manager.saveWorld(mw);
     }
 
     private void applySpawnLocation(ManagedWorldImpl mw, World world, CompoundBinaryTag levelData) {
@@ -1007,7 +1153,7 @@ public class WorldImportService {
             String ruleName = entry.getKey();
             String snakeCaseRule = ruleName.replaceAll("([a-z])([A-Z]+)", "$1_$2").toLowerCase(Locale.ROOT);
             String canonicalRule = normalizeLegacyGameRule(snakeCaseRule);
-            NamespacedKey ruleKey = NamespacedKey.fromString(canonicalRule);
+            NamespacedKey ruleKey = canonicalRule.contains(":") ? NamespacedKey.fromString(canonicalRule) : NamespacedKey.minecraft(canonicalRule);
 
             if (ruleKey == null) continue;
 

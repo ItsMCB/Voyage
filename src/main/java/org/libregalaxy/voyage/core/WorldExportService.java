@@ -13,6 +13,10 @@ import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.ManagedWorld;
 import org.libregalaxy.voyage.api.VoyageAPI;
+import org.libregalaxy.voyage.api.portal.PortalType;
+import org.libregalaxy.voyage.api.portal.generator.StructureGenerator;
+import org.libregalaxy.voyage.api.portal.generator.VanillaNetherGenerator;
+import org.libregalaxy.voyage.api.portal.strategy.VanillaScalingStrategy;
 import org.libregalaxy.voyage.core.migration.LevelDatNbt;
 import org.libregalaxy.voyage.core.migration.VanillaPlayerData;
 import org.libregalaxy.voyage.core.migration.VanillaPlayerStateConverter;
@@ -54,14 +58,25 @@ public class WorldExportService {
         exportingWorlds.remove(key);
     }
 
+    public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile) {
+        return exportWorld(worldKey, targetZipFile, null, null, true, true);
+    }
+
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                @Nullable UUID primaryPlayer, @Nullable String displayName) {
-        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true);
+        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, true, true);
     }
 
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                @Nullable UUID primaryPlayer, @Nullable String displayName,
                                                boolean includeRootFolder) {
+        return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, includeRootFolder, true);
+    }
+
+    public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
+                                               @Nullable UUID primaryPlayer, @Nullable String displayName,
+                                               boolean includeRootFolder,
+                                               boolean includePlayerData) {
         if (worldKey.equals(Bukkit.getWorlds().getFirst().getKey())) {
             return CompletableFuture.failedFuture(new IllegalStateException("Cannot export the main level."));
         }
@@ -78,7 +93,7 @@ public class WorldExportService {
                 // Capture the exact folder while the world is still loaded and actively mounted in Bukkit
                 final File worldDir = (world != null) ? world.getWorldFolder() : fileService.resolveWorldFolder(worldKey);
 
-                VanillaPlayerData.LastPosition livePosition = snapshotLivePosition(primaryPlayer, world);
+                VanillaPlayerData.LastPosition livePosition = includePlayerData ? snapshotLivePosition(primaryPlayer, world) : null;
                 VanillaWorldExporter.WorldBorderData liveBorder = captureWorldBorder(world);
                 VanillaWorldExporter.LiveWorldMetadata liveMetadata = captureLiveMetadata(world, worldKey);
 
@@ -103,22 +118,21 @@ public class WorldExportService {
                             plugin.getLogger().warning("Could not save Voyage profile state for "
                                     + p.getName() + " before export: " + t.getMessage());
                         }
-                        try {
-                            p.saveData();
-                            CompoundBinaryTag state = captureServerPlayerState(p, world);
-                            if (state != null) {
-                                serverStates.put(p.getUniqueId(), state);
-                            } else {
-                                plugin.getLogger().warning("Could not locate the server player data file for "
-                                        + p.getName() + " — their export will use profile conversion.");
+                        if (includePlayerData) {
+                            try {
+                                p.saveData();
+                                CompoundBinaryTag state = captureServerPlayerState(p, world);
+                                if (state != null) {
+                                    serverStates.put(p.getUniqueId(), state);
+                                }
+                            } catch (Throwable t) {
+                                plugin.getLogger().warning("Could not snapshot player data for "
+                                        + p.getName() + ": " + t.getMessage());
                             }
-                        } catch (Throwable t) {
-                            plugin.getLogger().warning("Could not snapshot player data for "
-                                    + p.getName() + ": " + t.getMessage());
                         }
                     }
 
-                    // Synchronously commit all chunk modifications (including pasted platforms and placed blocks) to disk
+                    // Synchronously commit all chunk modifications to disk
                     try {
                         world.save();
                     } catch (Exception e) {
@@ -137,8 +151,14 @@ public class WorldExportService {
 
                     return CompletableFuture.runAsync(() -> {
                         try {
-                            List<VanillaPlayerData.ExportedPlayer> players =
-                                    collectPlayerDataForExport(worldKey, primaryPlayer, livePosition, liveWorldPositions, serverStates);
+                            PlayerDataManager playerDataManager = context.getService(PlayerDataManager.class);
+                            Map<UUID, PlayerStateSerializer.PlayerState> rawPlayerStates = (includePlayerData && playerDataManager != null)
+                                    ? new LinkedHashMap<>(playerDataManager.getStoredPlayerStates(worldKey))
+                                    : new LinkedHashMap<>();
+
+                            List<VanillaPlayerData.ExportedPlayer> players = includePlayerData
+                                    ? collectPlayerDataForExport(worldKey, primaryPlayer, livePosition, liveWorldPositions, serverStates)
+                                    : List.of();
 
                             ManagedWorld mw = worldManager.getManagedWorld(worldKey).orElse(null);
                             if (mw instanceof ManagedWorldImpl mwi) {
@@ -161,16 +181,21 @@ public class WorldExportService {
                                     ? worldKey.asString().replace(':', '_')
                                     : "";
 
+                            VoyageWorldExportData voyageData = compileVoyageExportData(worldKey, mw, world, rawPlayerStates);
+
                             new VanillaWorldExporter(plugin.getLogger()).export(
                                     worldDir.toPath(),
                                     folderName,
                                     exportName,
                                     voidWorld,
                                     players,
-                                    primaryPlayer,
+                                    includePlayerData ? primaryPlayer : null,
                                     liveBorder,
                                     liveMetadata,
+                                    voyageData,
                                     targetZipFile);
+
+                            pruneOldExports(targetZipFile.getParent());
                         } catch (IOException e) {
                             throw new CompletionException("Failed to export world to zip", e);
                         }
@@ -232,6 +257,113 @@ public class WorldExportService {
         }
 
         return exportFuture;
+    }
+
+    private void pruneOldExports(@Nullable Path exportDir) {
+        if (exportDir == null || !Files.isDirectory(exportDir)) return;
+
+        int maxRetained = 5;
+        int retentionDays = 7;
+        try {
+            if (plugin.getConfig() != null) {
+                maxRetained = plugin.getConfig().getInt("export.max-retained", 5);
+                retentionDays = plugin.getConfig().getInt("export.retention-days", 7);
+            }
+        } catch (Throwable ignored) {}
+
+        File[] files = exportDir.toFile().listFiles((dir, name) -> name.endsWith(".zip"));
+        if (files == null || files.length == 0) return;
+
+        long cutoff = System.currentTimeMillis() - (retentionDays * 86_400_000L);
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+
+        int remaining = files.length;
+        for (File f : files) {
+            boolean tooOld = retentionDays > 0 && f.lastModified() < cutoff;
+            boolean exceedsCap = maxRetained > 0 && remaining > maxRetained;
+            if (tooOld || exceedsCap) {
+                if (f.delete()) {
+                    plugin.getLogger().info("Pruned old export archive: " + f.getName());
+                    remaining--;
+                }
+            }
+        }
+    }
+
+    private @NotNull VoyageWorldExportData compileVoyageExportData(
+            @NotNull NamespacedKey worldKey,
+            @Nullable ManagedWorld mw,
+            @Nullable World world,
+            @NotNull Map<UUID, PlayerStateSerializer.PlayerState> playerStates
+    ) {
+        String env = mw != null ? mw.getEnvironment().name() : (world != null ? world.getEnvironment().name() : "NORMAL");
+        long seed = mw != null ? mw.getSeed() : (world != null ? world.getSeed() : 0L);
+        String worldType = mw != null ? mw.getWorldType().name() : "NORMAL";
+        String generator = mw != null ? mw.getGenerator().orElse(null) : null;
+        String generatorSettings = mw != null ? mw.getGeneratorSettings().orElse(null) : null;
+        boolean autoLoad = mw != null && mw.isAutoLoad();
+        String difficulty = mw != null ? mw.getDifficulty().name() : (world != null ? world.getDifficulty().name() : "NORMAL");
+        boolean generateStructures = mw == null || mw.isGenerateStructures();
+
+        int[] spawn = null;
+        if (mw != null && mw.getConfiguredSpawn().isPresent()) {
+            spawn = mw.getConfiguredSpawn().get();
+        } else if (world != null) {
+            spawn = new int[]{world.getSpawnLocation().getBlockX(), world.getSpawnLocation().getBlockY(), world.getSpawnLocation().getBlockZ()};
+        }
+
+        float[] spawnAngle = null;
+        if (mw != null && mw.getConfiguredSpawnAngles().isPresent()) {
+            spawnAngle = mw.getConfiguredSpawnAngles().get();
+        } else if (world != null) {
+            spawnAngle = new float[]{world.getSpawnLocation().getYaw(), world.getSpawnLocation().getPitch()};
+        }
+
+        Map<String, String> gameRulesMap = new LinkedHashMap<>();
+        if (mw != null) {
+            mw.getGameRules().forEach((r, val) -> gameRulesMap.put(r.getKey().value(), String.valueOf(val)));
+        }
+
+        Map<String, String> metadata = mw != null ? mw.getAllMetadata() : Map.of();
+
+        List<VoyageWorldExportData.PortalLinkData> portalLinks = new ArrayList<>();
+        if (mw != null) {
+            for (PortalType pt : PortalType.values()) {
+                mw.getPortalLink(pt).ifPresent(pl -> {
+                    String strat = (pl.coordinateStrategy() instanceof VanillaScalingStrategy) ? "VANILLA_SCALING" : "TARGET_SPAWN_POINT";
+                    Double factor = (pl.coordinateStrategy() instanceof VanillaScalingStrategy vs) ? vs.getScaleFactor() : null;
+                    String gen = "NONE";
+                    String structureKey = null;
+                    if (pl.generator() instanceof VanillaNetherGenerator) {
+                        gen = "VANILLA_NETHER";
+                    } else if (pl.generator() instanceof StructureGenerator sg) {
+                        gen = "STRUCTURE";
+                        structureKey = sg.getStructureKey().asString();
+                    }
+                    portalLinks.add(new VoyageWorldExportData.PortalLinkData(
+                            pt.name(), pl.targetWorld().asString(), strat, factor, gen, structureKey
+                    ));
+                });
+            }
+        }
+
+        return VoyageWorldExportData.create(
+                worldKey.asString(),
+                env,
+                seed,
+                worldType,
+                generator,
+                generatorSettings,
+                autoLoad,
+                difficulty,
+                generateStructures,
+                spawn,
+                spawnAngle,
+                gameRulesMap,
+                metadata,
+                portalLinks,
+                playerStates
+        );
     }
 
     private @Nullable VanillaPlayerData.LastPosition snapshotLivePosition(
