@@ -4,7 +4,6 @@ import me.itsmcb.vexelcore.bukkit.api.framework.VexelCommandRegistry;
 import org.bukkit.HeightMap;
 import org.bukkit.World;
 import org.bukkit.block.Biome;
-import org.bukkit.entity.Player;
 import org.bukkit.generator.BiomeProvider;
 import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.generator.WorldInfo;
@@ -23,6 +22,9 @@ import org.libregalaxy.voyage.core.WebhookService;
 import org.libregalaxy.voyage.core.database.VoyageDatabaseService;
 import org.libregalaxy.voyage.listeners.VoyagePortalListener;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Random;
 
@@ -36,6 +38,7 @@ public final class VoyagePlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        ensurePluginDirectories();
 
         this.context = new VoyageContext(this);
 
@@ -69,6 +72,17 @@ public final class VoyagePlugin extends JavaPlugin {
         registry.register(new VoyageCmd(context));
     }
 
+    private void ensurePluginDirectories() {
+        try {
+            Path dataDir = getDataFolder().toPath();
+            Files.createDirectories(dataDir.resolve("import"));
+            Files.createDirectories(dataDir.resolve("exports"));
+            Files.createDirectories(dataDir.resolve("staging"));
+        } catch (IOException e) {
+            getLogger().warning("Failed to precreate Voyage directories: " + e.getMessage());
+        }
+    }
+
     @Override
     public void onDisable() {
         if (context == null) return;
@@ -77,14 +91,12 @@ public final class VoyagePlugin extends JavaPlugin {
         VoyageWorldManager worldManager = context.getWorldManager();
         VoyageDatabaseService databaseService = context.getDatabaseService();
 
-        // STEP 1: Synchronously capture and write all connected player states
+        // STEP 1: Synchronously capture and write all connected player states (skipping in-flight profile transitions)
         if (playerDataManager != null) {
-            for (Player p : getServer().getOnlinePlayers()) {
-                try {
-                    playerDataManager.savePlayerStateSync(p);
-                } catch (Exception e) {
-                    getLogger().severe("Failed to final-save state for " + p.getName() + ": " + e.getMessage());
-                }
+            try {
+                playerDataManager.saveAllOnlineSync();
+            } catch (Exception e) {
+                getLogger().severe("Failed to final-save online player states: " + e.getMessage());
             }
 
             try {

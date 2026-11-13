@@ -139,7 +139,12 @@ public class VoyageWorldManager implements VoyageAPI {
 
     @Override
     public World getMainLevel() {
-        return Bukkit.getWorlds().getFirst();
+        World overworld = Bukkit.getWorld(NamespacedKey.minecraft("overworld"));
+        if (overworld != null) {
+            return overworld;
+        }
+        List<World> worlds = Bukkit.getWorlds();
+        return (worlds != null && !worlds.isEmpty()) ? worlds.getFirst() : null;
     }
 
     @Override
@@ -301,8 +306,12 @@ public class VoyageWorldManager implements VoyageAPI {
         World sourceWorld = Bukkit.getWorld(sourceKey);
         boolean wasSourceLoaded = sourceWorld != null;
 
-        if (sourceWorld != null && getMainLevel().equals(sourceWorld)) {
+        if (sourceWorld != null && sourceWorld.equals(getMainLevel())) {
             return CompletableFuture.failedFuture(new IllegalStateException("The main server level cannot be safely unloaded for cloning."));
+        }
+
+        if (!exportService.claimExport(sourceKey)) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Source world " + sourceKey.asString() + " is currently busy (exporting, cloning, or being deleted)."));
         }
 
         CompletableFuture<Boolean> unloadFuture = wasSourceLoaded
@@ -326,6 +335,9 @@ public class VoyageWorldManager implements VoyageAPI {
                     .fromTemplate(sourceKey);
 
             source.getConfiguredSpawn().ifPresent(s -> builder.spawn(s[0], s[1], s[2]));
+            if (builder instanceof WorldBuilderImpl impl) {
+                source.getConfiguredSpawnAngles().ifPresent(a -> impl.spawnAngle(a[0], a[1]));
+            }
             for (Map.Entry<org.bukkit.GameRule<?>, Object> entry : source.getGameRules().entrySet()) {
                 WorldConfigService.applyGameRuleToBuilder(builder, (org.bukkit.GameRule<Object>) entry.getKey(), entry.getValue());
             }
@@ -338,11 +350,12 @@ public class VoyageWorldManager implements VoyageAPI {
                 } else {
                     return CompletableFuture.completedFuture(mw);
                 }
-            }).whenComplete((mw, ex) -> {
-                if (wasSourceLoaded) {
-                    getManagedWorld(sourceKey).ifPresent(ManagedWorld::load);
-                }
             });
+        }).whenComplete((mw, ex) -> {
+            exportService.releaseExport(sourceKey);
+            if (wasSourceLoaded) {
+                getManagedWorld(sourceKey).ifPresent(ManagedWorld::load);
+            }
         });
     }
 
@@ -351,6 +364,14 @@ public class VoyageWorldManager implements VoyageAPI {
     }
 
     public CompletableFuture<Boolean> unload(@NotNull NamespacedKey worldKey, @Nullable NamespacedKey fallbackKey, boolean save) {
+        try {
+            World main = getMainLevel();
+            if (main != null && worldKey.equals(main.getKey()) && worldKey.equals(NamespacedKey.minecraft("overworld"))) {
+                plugin.getLogger().warning("Prevented attempt to unload the main server level (" + worldKey + ").");
+                return CompletableFuture.completedFuture(false);
+            }
+        } catch (Throwable ignored) {}
+
         World world = Bukkit.getWorld(worldKey);
         if (world == null) return CompletableFuture.completedFuture(true);
 
@@ -405,12 +426,16 @@ public class VoyageWorldManager implements VoyageAPI {
 
     @Override
     public CompletableFuture<Boolean> deleteWorld(@NotNull NamespacedKey key, @Nullable NamespacedKey fallbackWorldKey) {
-        if (key.equals(getMainLevel().getKey()) || key.equals(Bukkit.getWorlds().getFirst().getKey())) {
+        World main = getMainLevel();
+        if (main != null && key.equals(main.getKey())) {
             plugin.getLogger().severe("Prevented attempt to delete the main server level.");
             return CompletableFuture.completedFuture(false);
         }
 
-        exportService.claimExport(key);
+        if (!exportService.claimExport(key)) {
+            plugin.getLogger().warning("World '" + key + "' is currently busy (exporting or deleting).");
+            return CompletableFuture.completedFuture(false);
+        }
 
         ManagedWorldImpl mw = registry.get(key);
         if (mw == null) {
@@ -537,6 +562,14 @@ public class VoyageWorldManager implements VoyageAPI {
         return true;
     }
 
+    boolean registerLoadedWorldFromDb(@NotNull ManagedWorldImpl world) {
+        if (registry.putIfAbsent(world.getKey(), world) != null) return false;
+        if (directoryWatcher != null) {
+            directoryWatcher.removeUnmanaged(world.getKey().asString());
+        }
+        return true;
+    }
+
     protected World loadBukkitWorld(@NotNull ManagedWorldImpl mw) {
         File worldFolder = resolveWorldFolder(mw.getKey());
         if (worldFolder.exists()) {
@@ -565,8 +598,13 @@ public class VoyageWorldManager implements VoyageAPI {
             world.setDifficulty(mw.getDifficulty());
 
             int[] spawnOverride = mw.getSpawnOverride();
+            float[] angleOverride = mw.getSpawnAngleOverride();
             if (spawnOverride != null) {
-                world.setSpawnLocation(spawnOverride[0], spawnOverride[1], spawnOverride[2]);
+                if (angleOverride != null && angleOverride.length >= 2) {
+                    world.setSpawnLocation(new Location(world, spawnOverride[0], spawnOverride[1], spawnOverride[2], angleOverride[0], angleOverride[1]));
+                } else {
+                    world.setSpawnLocation(spawnOverride[0], spawnOverride[1], spawnOverride[2]);
+                }
             }
 
             mw.applyGameRulesTo(world);

@@ -3,6 +3,7 @@ package org.libregalaxy.voyage.core;
 import org.bukkit.Bukkit;
 import org.bukkit.Difficulty;
 import org.bukkit.GameRule;
+import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.WorldType;
@@ -115,7 +116,16 @@ public class ManagedWorldImpl implements ManagedWorld {
         manager.saveWorld(this);
     }
 
+    void setAutoLoadInternal(boolean autoLoad) {
+        this.autoLoad = autoLoad;
+    }
+
     public void clearLinks() { this.portalLinks.clear(); }
+
+    void setPortalLinksInternal(@NotNull Map<PortalType, PortalLink> links) {
+        this.portalLinks.clear();
+        this.portalLinks.putAll(links);
+    }
 
     @Override public boolean isLoaded() { return getBukkitWorld().isPresent(); }
     @Override public @NotNull Optional<World> getBukkitWorld() { return Optional.ofNullable(Bukkit.getWorld(key)); }
@@ -250,7 +260,8 @@ public class ManagedWorldImpl implements ManagedWorld {
     public void setSpawn(int x, int y, int z, float yaw, float pitch) {
         this.spawn = new int[]{x, y, z};
         this.spawnAngle = new float[]{yaw, pitch};
-        getBukkitWorld().ifPresent(world -> runOnMain(() -> world.setSpawnLocation(x, y, z, yaw)));
+        getBukkitWorld().ifPresent(world -> runOnMain(() ->
+                world.setSpawnLocation(new Location(world, x, y, z, yaw, pitch))));
         manager.saveWorld(this);
     }
 

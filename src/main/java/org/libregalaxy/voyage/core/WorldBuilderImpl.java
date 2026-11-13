@@ -49,6 +49,7 @@ public class WorldBuilderImpl implements WorldBuilder {
     private @Nullable Difficulty difficulty = null;
     private boolean generateStructures = true;
     private @Nullable int[] spawn = null;
+    private @Nullable float[] spawnAngle = null;
     private final Map<GameRule<?>, Object> gameRules = new LinkedHashMap<>();
     private final Map<String, String> metadata = new LinkedHashMap<>();
 
@@ -101,6 +102,11 @@ public class WorldBuilderImpl implements WorldBuilder {
     @Override public WorldBuilder generateStructures(boolean generate)        { this.generateStructures = generate; return this; }
     @Override public WorldBuilder spawn(int x, int y, int z)                  { this.spawn = new int[]{x, y, z}; return this; }
 
+    public WorldBuilderImpl spawnAngle(float yaw, float pitch) {
+        this.spawnAngle = new float[]{yaw, pitch};
+        return this;
+    }
+
     @Override
     public WorldBuilder preset(String presetName) {
         this.presetName = presetName;
@@ -143,8 +149,9 @@ public class WorldBuilderImpl implements WorldBuilder {
     void setBypassValidation(boolean bypass) { this.bypassValidation = bypass; }
 
     @Nullable Difficulty getDifficultyConfig()   { return difficulty; }
-    boolean getGenerateStructuresConfig()         { return generateStructures; }
-    @Nullable int[] getSpawnConfig()              { return spawn; }
+    boolean getGenerateStructuresConfig()        { return generateStructures; }
+    @Nullable int[] getSpawnConfig()             { return spawn; }
+    @Nullable float[] getSpawnAngleConfig()      { return spawnAngle; }
     @NotNull Map<GameRule<?>, Object> getGameRulesConfig() { return gameRules; }
 
     private static class WorldAlreadyManagedException extends RuntimeException {}
@@ -247,6 +254,7 @@ public class WorldBuilderImpl implements WorldBuilder {
 
                     mw.setDifficultyInternal(difficulty != null ? difficulty : Difficulty.NORMAL);
                     if (spawn != null) mw.setSpawnInternal(spawn.clone());
+                    if (spawnAngle != null) mw.setSpawnAngleInternal(spawnAngle.clone());
                     mw.setGameRulesInternal(gameRules);
                     mw.setMetadataInternal(metadata);
 

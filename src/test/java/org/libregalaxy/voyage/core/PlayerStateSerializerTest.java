@@ -7,15 +7,16 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.configuration.file.FileConfiguration;
 import org.junit.jupiter.api.Test;
 import org.libregalaxy.voyage.VoyageContext;
 import org.mockito.MockedStatic;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -26,6 +27,7 @@ class PlayerStateSerializerTest {
     void capture_usesExactLocationWhenItBelongsToTargetWorld() {
         VoyageContext context = mock(VoyageContext.class);
         Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         World target = mock(World.class);
         NamespacedKey targetKey = NamespacedKey.fromString("custom:target");
         when(target.getKey()).thenReturn(targetKey);
@@ -69,6 +71,7 @@ class PlayerStateSerializerTest {
     void capture_fallsBackToTargetSpawnWhenExactLocationBelongsElsewhere() {
         VoyageContext context = mock(VoyageContext.class);
         Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         World target = mock(World.class);
         World other = mock(World.class);
 
@@ -110,6 +113,7 @@ class PlayerStateSerializerTest {
     void capture_clampsHealthToMaximumHealth() {
         VoyageContext context = mock(VoyageContext.class);
         Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         World target = mock(World.class);
         AttributeInstance maxHealth = mock(AttributeInstance.class);
 
@@ -154,6 +158,7 @@ class PlayerStateSerializerTest {
         when(config.getBoolean("profiles.start-fresh-on-first-join", true)).thenReturn(true);
 
         Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         World world = mock(World.class);
         PlayerInventory inventory = emptyInventory();
         PlayerInventory enderChest = emptyInventory();
@@ -238,6 +243,85 @@ class PlayerStateSerializerTest {
 
         verify(inventory, never()).clear();
         verify(pdm).savePlayerStateAsync(player);
+    }
+
+    @Test
+    void applyPlayerState_nullState_withRestoreLocation_savesTargetSpawnInsteadOfPreTeleportLocation() {
+        VoyageContext context = mock(VoyageContext.class);
+        JavaPlugin plugin = mock(JavaPlugin.class);
+        FileConfiguration config = mock(FileConfiguration.class);
+        PlayerDataManager pdm = mock(PlayerDataManager.class);
+
+        when(context.getPlugin()).thenReturn(plugin);
+        when(plugin.getConfig()).thenReturn(config);
+        when(context.getService(PlayerDataManager.class)).thenReturn(pdm);
+        when(config.getBoolean("profiles.start-fresh-on-first-join", true)).thenReturn(false);
+
+        Player player = mock(Player.class);
+        World world = mock(World.class);
+        when(world.getSpawnLocation()).thenReturn(new Location(world, 10, 64, 20, 90f, 0f));
+
+        PlayerStateSerializer serializer = new PlayerStateSerializer(context);
+        serializer.applyPlayerState(player, world, null, false, true);
+
+        Location expectedSpawn = new Location(world, 10.5, 64.0, 20.5, 90f, 0f);
+        verify(player).teleportAsync(expectedSpawn);
+        verify(pdm).savePlayerState(same(player), same(world), eq(true), eq(expectedSpawn));
+    }
+
+    @Test
+    void respawnLocationInUnloadedWorld_isPreservedAcrossApplyAndCapture() {
+        VoyageContext context = mock(VoyageContext.class);
+        Player player = mock(Player.class);
+        UUID uuid = UUID.randomUUID();
+        when(player.getUniqueId()).thenReturn(uuid);
+
+        World activeWorld = mock(World.class);
+        when(activeWorld.getKey()).thenReturn(NamespacedKey.minecraft("overworld"));
+        when(activeWorld.getSpawnLocation()).thenReturn(new Location(activeWorld, 0, 64, 0));
+
+        PlayerInventory inventory = emptyInventory();
+        PlayerInventory enderChest = emptyInventory();
+        when(player.getInventory()).thenReturn(inventory);
+        when(player.getEnderChest()).thenReturn(enderChest);
+        when(player.getActivePotionEffects()).thenReturn(List.of());
+        when(player.isDead()).thenReturn(false);
+        when(player.getAttribute(Attribute.MAX_HEALTH)).thenReturn(null);
+        when(player.getHealth()).thenReturn(20.0);
+        when(player.getGameMode()).thenReturn(GameMode.SURVIVAL);
+        when(player.getFoodLevel()).thenReturn(20);
+        when(player.getSaturation()).thenReturn(5.0f);
+        when(player.getRemainingAir()).thenReturn(300);
+        when(player.getMaximumAir()).thenReturn(300);
+        when(player.getLocation()).thenReturn(new Location(activeWorld, 0, 64, 0));
+        when(player.getRespawnLocation()).thenReturn(null);
+
+        PlayerStateSerializer.PlayerState savedState = new PlayerStateSerializer.PlayerState();
+        savedState.health = 20.0;
+        savedState.respawnWorld = "custom:evicted_home";
+        savedState.respawnX = 120.5;
+        savedState.respawnY = 70.0;
+        savedState.respawnZ = -45.5;
+        savedState.respawnYaw = 180.0f;
+        savedState.respawnPitch = 0.0f;
+
+        NamespacedKey evictedKey = NamespacedKey.fromString("custom:evicted_home");
+
+        try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class)) {
+            // Simulate custom:evicted_home being unloaded due to idle eviction
+            bukkit.when(() -> Bukkit.getWorld(evictedKey)).thenReturn(null);
+
+            PlayerStateSerializer serializer = new PlayerStateSerializer(context);
+            serializer.applyPlayerState(player, activeWorld, savedState, false);
+
+            PlayerStateSerializer.PlayerState recaptured = serializer.capturePlayerState(player, activeWorld, null);
+
+            assertEquals("custom:evicted_home", recaptured.respawnWorld);
+            assertEquals(120.5, recaptured.respawnX);
+            assertEquals(70.0, recaptured.respawnY);
+            assertEquals(-45.5, recaptured.respawnZ);
+            assertEquals(180.0f, recaptured.respawnYaw);
+        }
     }
 
     private static PlayerInventory emptyInventory() {

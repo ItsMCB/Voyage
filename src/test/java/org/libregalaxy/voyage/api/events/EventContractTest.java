@@ -1,16 +1,18 @@
 package org.libregalaxy.voyage.api.events;
 
 import org.bukkit.NamespacedKey;
-import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.libregalaxy.voyage.api.ManagedWorld;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
+
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -206,6 +208,33 @@ class EventContractTest {
         }
     }
 
+    // ─── VoyageWorldDeletedEvent ───
+
+    @Nested
+    class VoyageWorldDeletedEventTests {
+        @Test
+        void syncConstructor_setsAsyncToFalseAndReturnsKey() {
+            NamespacedKey key = NamespacedKey.fromString("custom:deleted");
+            VoyageWorldDeletedEvent event = new VoyageWorldDeletedEvent(key);
+            assertFalse(event.isAsynchronous());
+            assertEquals(key, event.getWorldKey());
+        }
+
+        @Test
+        void asyncConstructor_setsAsyncToTrue() {
+            NamespacedKey key = NamespacedKey.fromString("custom:deleted");
+            VoyageWorldDeletedEvent event = new VoyageWorldDeletedEvent(key, true);
+            assertTrue(event.isAsynchronous());
+        }
+
+        @Test
+        void getHandlers_returnsSameInstanceAsStatic() {
+            NamespacedKey key = NamespacedKey.fromString("custom:deleted");
+            VoyageWorldDeletedEvent event = new VoyageWorldDeletedEvent(key);
+            assertSame(VoyageWorldDeletedEvent.getHandlerList(), event.getHandlers());
+        }
+    }
+
     // ─── VoyageWorldPreLinkEvent (Cancellable) ───
 
     @Nested
@@ -271,28 +300,17 @@ class EventContractTest {
 
     @Test
     void allEventHandlerLists_areDistinct() {
-        // Each event class must have its own static HandlerList (Bukkit requirement)
-        HandlerList loadList = VoyageWorldLoadEvent.getHandlerList();
-        HandlerList unloadList = VoyageWorldUnloadEvent.getHandlerList();
-        HandlerList cloneList = VoyageWorldCloneEvent.getHandlerList();
-        HandlerList preLoadList = VoyageWorldPreLoadEvent.getHandlerList();
-        HandlerList deleteList = VoyageWorldDeleteEvent.getHandlerList();
-        HandlerList preLinkList = VoyageWorldPreLinkEvent.getHandlerList();
+        List<HandlerList> allLists = List.of(
+                VoyageWorldLoadEvent.getHandlerList(),
+                VoyageWorldUnloadEvent.getHandlerList(),
+                VoyageWorldCloneEvent.getHandlerList(),
+                VoyageWorldPreLoadEvent.getHandlerList(),
+                VoyageWorldDeleteEvent.getHandlerList(),
+                VoyageWorldDeletedEvent.getHandlerList(),
+                VoyageWorldPreLinkEvent.getHandlerList()
+        );
 
-        assertNotSame(loadList, unloadList);
-        assertNotSame(loadList, cloneList);
-        assertNotSame(loadList, preLoadList);
-        assertNotSame(loadList, deleteList);
-        assertNotSame(loadList, preLinkList);
-        assertNotSame(unloadList, cloneList);
-        assertNotSame(unloadList, preLoadList);
-        assertNotSame(unloadList, deleteList);
-        assertNotSame(unloadList, preLinkList);
-        assertNotSame(cloneList, preLoadList);
-        assertNotSame(cloneList, deleteList);
-        assertNotSame(cloneList, preLinkList);
-        assertNotSame(preLoadList, deleteList);
-        assertNotSame(preLoadList, preLinkList);
-        assertNotSame(deleteList, preLinkList);
+        assertEquals(allLists.size(), Set.copyOf(allLists).size(),
+                "Every Voyage event class must have its own distinct static HandlerList");
     }
 }

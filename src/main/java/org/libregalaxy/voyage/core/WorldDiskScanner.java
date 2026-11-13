@@ -75,6 +75,8 @@ public class WorldDiskScanner {
     }
 
     public void purgeOrphanedTempWorlds() {
+        File[] staleStagingEntries = snapshotStaleStagingEntries();
+
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             int purged = 0;
             for (File dimsDir : getDimensionRoots()) {
@@ -99,6 +101,36 @@ public class WorldDiskScanner {
             if (purged > 0) {
                 plugin.getLogger().info("Purged " + purged + " orphaned temporary world(s) from disk.");
             }
+
+            int purgedStaging = 0;
+            for (File stagingEntry : staleStagingEntries) {
+                if (!stagingEntry.exists()) continue;
+                try {
+                    if (stagingEntry.isDirectory()) {
+                        manager.deleteDirectory(stagingEntry);
+                    } else {
+                        Files.deleteIfExists(stagingEntry.toPath());
+                    }
+                    purgedStaging++;
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Failed to purge orphaned staging entry " + stagingEntry.getName() + ": " + e.getMessage());
+                }
+            }
+            if (purgedStaging > 0) {
+                plugin.getLogger().info("Purged " + purgedStaging + " orphaned import staging entry(s) from plugins/Voyage/staging/.");
+            }
         });
+    }
+
+    private File[] snapshotStaleStagingEntries() {
+        if (plugin == null || plugin.getDataFolder() == null) {
+            return new File[0];
+        }
+        File stagingDir = new File(plugin.getDataFolder(), "staging");
+        if (!stagingDir.isDirectory()) {
+            return new File[0];
+        }
+        File[] entries = stagingDir.listFiles();
+        return entries != null ? entries : new File[0];
     }
 }

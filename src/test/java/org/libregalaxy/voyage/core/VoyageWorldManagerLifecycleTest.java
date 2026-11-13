@@ -3,7 +3,6 @@ package org.libregalaxy.voyage.core;
 import org.bukkit.*;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.AfterEach;
@@ -11,11 +10,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.libregalaxy.voyage.VoyageContext;
-import org.libregalaxy.voyage.api.ManagedWorld;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -85,7 +82,32 @@ class VoyageWorldManagerLifecycleTest {
     }
 
     @Test
-    void delete_setsExportingFlagImmediatelyBeforeSchedulerYield() {
+    void unload_mainLevel_isAlwaysRejectedWithoutEvacuatingPlayers() {
+        TestManager manager = newManager();
+
+        World main = mock(World.class);
+        Player player = mock(Player.class);
+        NamespacedKey mainKey = NamespacedKey.minecraft("overworld");
+        when(main.getKey()).thenReturn(mainKey);
+        when(main.getPlayers()).thenReturn(List.of(player));
+
+        try (var bukkit = org.mockito.Mockito.mockStatic(Bukkit.class, CALLS_REAL_METHODS)) {
+            bukkit.when(Bukkit::getWorlds).thenReturn(List.of(main));
+            bukkit.when(() -> Bukkit.getWorld(mainKey)).thenReturn(main);
+
+            assertFalse(
+                    manager.callRealUnload(mainKey, null, true).join(),
+                    "The primary overworld level must never be unloaded"
+            );
+            verify(player, never()).teleportAsync(any());
+            verify(player, never()).kick(any());
+        }
+
+        manager.shutdown();
+    }
+
+    @Test
+    void delete_setsExportingFlagImmediatelyBeforeSchedulerYieldAndRejectsConcurrentDelete() {
         TestManager manager = newManager();
         NamespacedKey key = NamespacedKey.fromString("custom:delete_race");
         ManagedWorldImpl world = managedWorld(manager, key);
@@ -106,6 +128,10 @@ class VoyageWorldManagerLifecycleTest {
 
             // Assert the flag is set immediately to prevent concurrent loads
             assertTrue(manager.isExporting(key), "exportingWorlds must be marked immediately to prevent concurrent loads");
+
+            // A second concurrent deleteWorld on the same key must fail immediately
+            assertFalse(manager.deleteWorld(key, null).join(),
+                    "Concurrent deleteWorld must be rejected while first delete holds claimExport");
         }
         manager.shutdown();
     }
@@ -117,8 +143,6 @@ class VoyageWorldManagerLifecycleTest {
         ManagedWorldImpl world = managedWorld(manager, key);
         assertTrue(manager.registerNewWorld(world));
 
-        // MockBukkit's event bus is used here. Registering a cancellation listener
-        // makes this a true event-contract test rather than a private-field test.
         var listener = new org.bukkit.event.Listener() {
             @org.bukkit.event.EventHandler
             public void onDelete(org.libregalaxy.voyage.api.events.VoyageWorldDeleteEvent event) {
@@ -139,7 +163,6 @@ class VoyageWorldManagerLifecycleTest {
 
         manager.shutdown();
     }
-
 
     @Test
     void delete_filesystemFailure_doesNotReportSuccess() {
@@ -233,6 +256,10 @@ class VoyageWorldManagerLifecycleTest {
         @Override
         protected void saveState() {
             // Unit tests deliberately bypass delayed persistence; persistence is tested separately.
+        }
+
+        CompletableFuture<Boolean> callRealUnload(NamespacedKey worldKey, NamespacedKey fallbackKey, boolean save) {
+            return super.unload(worldKey, fallbackKey, save);
         }
 
         @Override

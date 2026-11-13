@@ -233,9 +233,16 @@ public class VoyageDatabaseService {
                 : Path.of("build/tmp/" + folderName);
         Files.createDirectories(backupDir);
 
+        String sanitizedLabel = (customLabel != null && !customLabel.isBlank())
+                ? customLabel.replaceAll("[^a-zA-Z0-9_-]", "_") + "_"
+                : "";
         String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
-        String fileName = "voyage_" + (customLabel != null && !customLabel.isBlank() ? customLabel + "_" : "") + timestamp + ".db";
-        Path targetFile = backupDir.resolve(fileName);
+        String baseName = "voyage_" + sanitizedLabel + timestamp;
+        Path targetFile = backupDir.resolve(baseName + ".db");
+        int collisionCounter = 1;
+        while (Files.exists(targetFile)) {
+            targetFile = backupDir.resolve(baseName + "_" + (collisionCounter++) + ".db");
+        }
 
         String escapedPath = targetFile.toAbsolutePath().toString().replace("'", "''");
         try (Connection conn = getConnection();
@@ -273,28 +280,31 @@ public class VoyageDatabaseService {
         }
     }
 
-    public synchronized CompletableFuture<Void> resetDatabase() {
+    public CompletableFuture<Void> resetDatabase() {
         return CompletableFuture.runAsync(() -> {
-            if (backupTask != null) {
-                backupTask.cancel();
+            synchronized (VoyageDatabaseService.this) {
+                if (backupTask != null) {
+                    backupTask.cancel();
+                    backupTask = null;
+                }
+
+                if (dataSource != null && !dataSource.isClosed()) {
+                    dataSource.close();
+                }
+
+                File walFile = new File(dbFile.getParentFile(), dbFile.getName() + "-wal");
+                File shmFile = new File(dbFile.getParentFile(), dbFile.getName() + "-shm");
+
+                dbFile.delete();
+                walFile.delete();
+                shmFile.delete();
+
+                log(Level.WARNING, "Voyage database has been completely wiped.", null);
+
+                initializeDataSource();
+                applySchema();
+                startAutoBackupTask();
             }
-
-            if (dataSource != null && !dataSource.isClosed()) {
-                dataSource.close();
-            }
-
-            File walFile = new File(dbFile.getParentFile(), dbFile.getName() + "-wal");
-            File shmFile = new File(dbFile.getParentFile(), dbFile.getName() + "-shm");
-
-            dbFile.delete();
-            walFile.delete();
-            shmFile.delete();
-
-            log(Level.WARNING, "Voyage database has been completely wiped.", null);
-
-            initializeDataSource();
-            applySchema();
-            startAutoBackupTask();
         });
     }
 

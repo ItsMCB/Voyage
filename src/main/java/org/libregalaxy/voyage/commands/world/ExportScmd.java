@@ -6,18 +6,22 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
-import me.itsmcb.vexelcore.bukkit.api.framework.VexelPlayerSubCommand;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.libregalaxy.voyage.VoyageContext;
 import org.jetbrains.annotations.NotNull;
+import org.libregalaxy.voyage.VoyageContext;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 
-public class ExportScmd extends VexelPlayerSubCommand<VoyageContext> {
+public class ExportScmd extends VexelSenderSubCommand<VoyageContext> {
 
     private final VexelArg<NamespacedKey> WORLD_ARG;
     private final VexelArg<String> DATA_OPTION_ARG;
@@ -38,30 +42,38 @@ public class ExportScmd extends VexelPlayerSubCommand<VoyageContext> {
     @Override public @NotNull List<VexelArg<?>> getArguments() { return List.of(WORLD_ARG, DATA_OPTION_ARG); }
 
     @Override
-    public void execute(@NotNull CommandContext<CommandSourceStack> ctx, @NotNull Player player) {
+    public void execute(@NotNull CommandContext<CommandSourceStack> ctx, @NotNull CommandSender sender) {
         NamespacedKey key = requireArg(ctx, WORLD_ARG);
         String dataOption = optionalArg(ctx, DATA_OPTION_ARG);
         boolean includePlayerData = !"--no-data".equalsIgnoreCase(dataOption);
 
-        TextUtils.send(player, "<color:#e98df5>ℹ</color> <yellow>Starting export of <white><world></white> (<mode>)...</yellow>",
+        TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>Starting export of <white><world></white> (<mode>)...</yellow>",
                 Placeholder.unparsed("world", key.asString()),
                 Placeholder.unparsed("mode", includePlayerData ? "with player data" : "terrain & config only"));
 
-        Path exportDir = Bukkit.getWorldContainer().toPath().resolve("exports");
-        exportDir.toFile().mkdirs();
+        Path exportDir = context.getPlugin().getDataFolder().toPath().resolve("exports");
+        try {
+            Files.createDirectories(exportDir);
+        } catch (IOException e) {
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Failed to prepare exports directory: <error></red>",
+                    Placeholder.unparsed("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+            return;
+        }
         Path targetZip = exportDir.resolve(key.asString().replace(":", "_") + ".zip");
 
-        context.getWorldManager().exportWorld(key, targetZip, player.getUniqueId(), null, true, includePlayerData)
+        UUID primaryUuid = (sender instanceof Player p) ? p.getUniqueId() : null;
+
+        context.getWorldManager().exportWorld(key, targetZip, primaryUuid, null, true, includePlayerData)
                 .thenRun(() -> {
                     Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
-                        TextUtils.send(player, "<color:#e98df5>ℹ</color> <green>Successfully exported <white><world></white> to exports/ folder.</green>", Placeholder.unparsed("world", key.asString()));
-                        context.getWebhookService().notify("WORLD_EXPORT", player, "Exported " + key.asString() + " (" + (includePlayerData ? "with data" : "clean") + ")");
+                        TextUtils.send(sender, "<color:#e98df5>ℹ</color> <green>Successfully exported <white><world></white> to plugins/Voyage/exports/ folder.</green>", Placeholder.unparsed("world", key.asString()));
+                        context.getWebhookService().notify("WORLD_EXPORT", sender, "Exported " + key.asString() + " (" + (includePlayerData ? "with data" : "clean") + ")");
                     });
                 })
                 .exceptionally(ex -> {
                     Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
                         Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
-                        TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Failed to export world: <error></red>", Placeholder.unparsed("error", cause.getMessage()));
+                        TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Failed to export world: <error></red>", Placeholder.unparsed("error", cause.getMessage()));
                     });
                     return null;
                 });

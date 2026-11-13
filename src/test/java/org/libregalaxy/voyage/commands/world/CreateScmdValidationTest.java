@@ -1,7 +1,9 @@
 package org.libregalaxy.voyage.commands.world;
 
+import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 import me.itsmcb.vexelcore.bukkit.api.framework.FlagParser;
 import org.bukkit.GameRule;
 import org.bukkit.NamespacedKey;
@@ -14,9 +16,12 @@ import org.libregalaxy.voyage.api.ManagedWorld;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.api.builder.WorldBuilder;
 import org.libregalaxy.voyage.core.VoyageWorldManager;
+import org.libregalaxy.voyage.core.WebhookService;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -77,15 +82,19 @@ class CreateScmdValidationTest {
         when(context.getPlugin()).thenReturn(plugin);
         when(plugin.getConfig()).thenReturn(config);
 
-        CreateScmd cmd = new CreateScmd(context);
+        try (MockedStatic<ArgumentTypes> argumentTypes = mockStatic(ArgumentTypes.class)) {
+            argumentTypes.when(ArgumentTypes::namespacedKey).thenReturn(mock(ArgumentType.class));
 
-        FlagParser longParsed = cmd.creationFlags.parse("--generator OldGenerator:b173");
-        assertTrue(longParsed.getValue("generator").isPresent());
-        assertEquals("OldGenerator:b173", longParsed.getValue("generator").get());
+            CreateScmd cmd = new CreateScmd(context);
 
-        FlagParser aliasParsed = cmd.creationFlags.parse("-gen OldGenerator:b173");
-        assertTrue(aliasParsed.getValue("generator").isPresent());
-        assertEquals("OldGenerator:b173", aliasParsed.getValue("generator").get());
+            FlagParser longParsed = cmd.creationFlags.parse("--generator OldGenerator:b173");
+            assertTrue(longParsed.getValue("generator").isPresent());
+            assertEquals("OldGenerator:b173", longParsed.getValue("generator").get());
+
+            FlagParser aliasParsed = cmd.creationFlags.parse("-gen OldGenerator:b173");
+            assertTrue(aliasParsed.getValue("generator").isPresent());
+            assertEquals("OldGenerator:b173", aliasParsed.getValue("generator").get());
+        }
     }
 
     @Test
@@ -94,12 +103,15 @@ class CreateScmdValidationTest {
         JavaPlugin plugin = mock(JavaPlugin.class);
         FileConfiguration config = mock(FileConfiguration.class);
         VoyageWorldManager manager = mock(VoyageWorldManager.class);
+        WebhookService webhookService = mock(WebhookService.class);
         WorldBuilder builder = mock(WorldBuilder.class, RETURNS_SELF);
         ManagedWorld managedWorld = mock(ManagedWorld.class);
 
         when(context.getPlugin()).thenReturn(plugin);
         when(plugin.getConfig()).thenReturn(config);
+        when(plugin.getLogger()).thenReturn(Logger.getLogger("CreateScmdTest"));
         when(context.getWorldManager()).thenReturn(manager);
+        when(context.getWebhookService()).thenReturn(webhookService);
 
         NamespacedKey targetKey = NamespacedKey.fromString("custom:retro");
         when(manager.worldExists(targetKey)).thenReturn(false);
@@ -107,17 +119,21 @@ class CreateScmdValidationTest {
         when(builder.create()).thenReturn(CompletableFuture.completedFuture(managedWorld));
         when(managedWorld.getBukkitWorld()).thenReturn(java.util.Optional.empty());
 
-        CreateScmd cmd = new CreateScmd(context);
-        Player player = mock(Player.class);
+        try (MockedStatic<ArgumentTypes> argumentTypes = mockStatic(ArgumentTypes.class)) {
+            argumentTypes.when(ArgumentTypes::namespacedKey).thenReturn(mock(ArgumentType.class));
 
-        @SuppressWarnings("unchecked")
-        CommandContext<CommandSourceStack> ctx = mock(CommandContext.class);
-        when(ctx.getArgument("namespacedkey", NamespacedKey.class)).thenReturn(targetKey);
-        when(ctx.getArgument("flags", String.class)).thenReturn("--generator OldGenerator:b173");
+            CreateScmd cmd = new CreateScmd(context);
+            Player player = mock(Player.class);
 
-        cmd.execute(ctx, player);
+            @SuppressWarnings("unchecked")
+            CommandContext<CommandSourceStack> ctx = mock(CommandContext.class);
+            when(ctx.getArgument("namespacedkey", NamespacedKey.class)).thenReturn(targetKey);
+            when(ctx.getArgument("flags", String.class)).thenReturn("--generator OldGenerator:b173");
 
-        verify(builder).generator("OldGenerator:b173");
-        verify(builder).create();
+            cmd.execute(ctx, player);
+
+            verify(builder).generator("OldGenerator:b173");
+            verify(builder).create();
+        }
     }
 }

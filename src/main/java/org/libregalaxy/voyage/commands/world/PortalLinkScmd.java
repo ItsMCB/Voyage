@@ -6,10 +6,11 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
-import me.itsmcb.vexelcore.bukkit.api.framework.VexelPlayerSubCommand;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.NamespacedKey;
-import org.bukkit.entity.Player;
+import org.bukkit.command.CommandSender;
+import org.jetbrains.annotations.NotNull;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.ManagedWorld;
 import org.libregalaxy.voyage.api.VoyageAPI;
@@ -22,11 +23,10 @@ import org.libregalaxy.voyage.api.portal.generator.StructureGenerator;
 import org.libregalaxy.voyage.api.portal.generator.VanillaNetherGenerator;
 import org.libregalaxy.voyage.api.portal.strategy.FixedSpawnStrategy;
 import org.libregalaxy.voyage.api.portal.strategy.VanillaScalingStrategy;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
+public class PortalLinkScmd extends VexelSenderSubCommand<VoyageContext> {
 
     private final VexelArg<String> ACTION_ARG;
     private final VexelArg<NamespacedKey> WORLD_ARG;
@@ -77,7 +77,7 @@ public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
     }
 
     @Override
-    public void execute(@NotNull CommandContext<CommandSourceStack> ctx, @NotNull Player player) {
+    public void execute(@NotNull CommandContext<CommandSourceStack> ctx, @NotNull CommandSender sender) {
         String actionStr = requireArg(ctx, ACTION_ARG).toLowerCase(Locale.ROOT);
         NamespacedKey worldKey = requireArg(ctx, WORLD_ARG);
         String typeStr = requireArg(ctx, TYPE_ARG).toUpperCase(Locale.ROOT);
@@ -86,7 +86,7 @@ public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
         try {
             portalType = PortalType.valueOf(typeStr);
         } catch (IllegalArgumentException e) {
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Unknown portal type <white><type></white>. Valid values: NETHER, END, CUSTOM</red>", Placeholder.unparsed("type", typeStr));
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Unknown portal type <white><type></white>. Valid values: NETHER, END, CUSTOM</red>", Placeholder.unparsed("type", typeStr));
             return;
         }
 
@@ -94,14 +94,14 @@ public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
         Optional<ManagedWorld> optMw = api.getManagedWorld(worldKey);
 
         if (optMw.isEmpty()) {
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Source world <white><world></white> is not managed by Voyage.</red>", Placeholder.unparsed("world", worldKey.asString()));
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Source world <white><world></white> is not managed by Voyage.</red>", Placeholder.unparsed("world", worldKey.asString()));
             return;
         }
 
         if ("break".equals(actionStr)) {
             optMw.get().unlinkPortal(portalType);
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <green>Portal link unlinked successfully for <white><type></white>!</green>", Placeholder.unparsed("type", portalType.name()));
-            context.getWebhookService().notify("PORTAL_LINK", player, "Unlinked " + portalType.name() + " portal for " + worldKey.asString());
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <green>Portal link unlinked successfully for <white><type></white>!</green>", Placeholder.unparsed("type", portalType.name()));
+            context.getWebhookService().notify("PORTAL_LINK", sender, "Unlinked " + portalType.name() + " portal for " + worldKey.asString());
             return;
         }
 
@@ -112,7 +112,7 @@ public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
             String extra = optionalArg(ctx, EXTRA_ARG);
 
             if (targetKey == null || strategyStr == null || generatorStr == null) {
-                TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Missing arguments. Usage: /world portal-link create <world> <type> <target> <strategy> <generator> [extra]</red>");
+                TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Missing arguments. Usage: /world portal-link create <world> <type> <target> <strategy> <generator> [extra]</red>");
                 return;
             }
 
@@ -126,11 +126,11 @@ public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
                     try {
                         factor = Double.parseDouble(extra);
                         if (factor <= 0.0) {
-                            TextUtils.send(player, "<color:#e98df5>ℹ</color> <yellow>Scale factor must be a positive number; defaulting to 1.0.</yellow>");
+                            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>Scale factor must be a positive number; defaulting to 1.0.</yellow>");
                             factor = 1.0;
                         }
                     } catch (NumberFormatException e) {
-                        TextUtils.send(player, "<color:#e98df5>ℹ</color> <yellow>Invalid scale factor; defaulting to 1.0.</yellow>");
+                        TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>Invalid scale factor; defaulting to 1.0.</yellow>");
                     }
                 }
                 strategy = new VanillaScalingStrategy(factor);
@@ -148,7 +148,7 @@ public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
                     if (parsed != null) {
                         sKey = parsed;
                     } else {
-                        TextUtils.send(player, "<color:#e98df5>ℹ</color> <yellow>Invalid structure key; defaulting to minecraft:nether_portal.</yellow>");
+                        TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>Invalid structure key; defaulting to minecraft:nether_portal.</yellow>");
                     }
                 }
                 generator = new StructureGenerator(sKey);
@@ -158,11 +158,11 @@ public class PortalLinkScmd extends VexelPlayerSubCommand<VoyageContext> {
 
             optMw.get().linkPortal(portalType, new PortalLink(targetKey, strategy, generator));
 
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <green>Dimension portal logic linked successfully!</green>");
-            TextUtils.send(player, "   <gray><italic>(Note: Links route the entire dimension, not individual portals. Origin portals snap to target portal by searching a 128-block radius.)</italic></gray>");
-            context.getWebhookService().notify("PORTAL_LINK", player, "Linked " + portalType.name() + " portal from " + worldKey.asString() + " to " + targetKey.asString());
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <green>Dimension portal logic linked successfully!</green>");
+            TextUtils.send(sender, "   <gray><italic>(Note: Links route the entire dimension, not individual portals. Origin portals snap to target portal by searching a 128-block radius.)</italic></gray>");
+            context.getWebhookService().notify("PORTAL_LINK", sender, "Linked " + portalType.name() + " portal from " + worldKey.asString() + " to " + targetKey.asString());
         } else {
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Invalid action: <white><action></white>. Use 'create' or 'break'.</red>", Placeholder.unparsed("action", actionStr));
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Invalid action: <white><action></white>. Use 'create' or 'break'.</red>", Placeholder.unparsed("action", actionStr));
         }
     }
 }

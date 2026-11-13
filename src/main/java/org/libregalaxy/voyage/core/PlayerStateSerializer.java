@@ -7,7 +7,6 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
-import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
@@ -22,13 +21,21 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerStateSerializer {
 
     private final VoyageContext context;
 
+    private record OfflineRespawnData(String world, double x, double y, double z, float yaw, float pitch) {}
+    private final Map<UUID, OfflineRespawnData> unloadedRespawnCache = new ConcurrentHashMap<>();
+
     public PlayerStateSerializer(VoyageContext context) {
         this.context = context;
+    }
+
+    public void clearPlayerCache(@NotNull UUID playerUuid) {
+        unloadedRespawnCache.remove(playerUuid);
     }
 
     public PlayerState capturePlayerState(@NotNull Player player, @NotNull World targetWorld, @Nullable Location exactLocation) {
@@ -62,10 +69,21 @@ public class PlayerStateSerializer {
             state.respawnZ = respawn.getZ();
             state.respawnYaw = respawn.getYaw();
             state.respawnPitch = respawn.getPitch();
+            unloadedRespawnCache.remove(player.getUniqueId());
+        } else {
+            OfflineRespawnData cachedRespawn = unloadedRespawnCache.get(player.getUniqueId());
+            if (cachedRespawn != null) {
+                state.respawnWorld = cachedRespawn.world();
+                state.respawnX = cachedRespawn.x();
+                state.respawnY = cachedRespawn.y();
+                state.respawnZ = cachedRespawn.z();
+                state.respawnYaw = cachedRespawn.yaw();
+                state.respawnPitch = cachedRespawn.pitch();
+            }
         }
 
         Location loc = exactLocation != null ? exactLocation : player.getLocation();
-        if (loc.getWorld() != null && loc.getWorld().equals(targetWorld)) {
+        if (loc != null && loc.getWorld() != null && loc.getWorld().equals(targetWorld)) {
             state.lastLocWorld = loc.getWorld().getKey().asString();
             state.lastLocX = loc.getX();
             state.lastLocY = loc.getY();
@@ -130,26 +148,33 @@ public class PlayerStateSerializer {
                 player.setFallDistance(0.0f);
                 player.setRemainingAir(player.getMaximumAir());
                 player.setRespawnLocation(null, true);
-
-                // Do not force Bukkit.getDefaultGameMode() here.
-                // The governing world plugin sets the player's game mode
-                // based on their group rules, and savePlayerStateAsync persists it below.
-
-                // If restoring location for a fresh profile, place the player at this world's spawn location
-                if (restoreLocation) {
-                    Location spawn = world.getSpawnLocation().clone();
-                    player.teleportAsync(new Location(world, spawn.getBlockX() + 0.5, spawn.getBlockY(), spawn.getBlockZ() + 0.5, spawn.getYaw(), spawn.getPitch()));
+                if (player.getUniqueId() != null) {
+                    unloadedRespawnCache.remove(player.getUniqueId());
                 }
 
-                // Immediately persist the newly initialized fresh state to disk for this profile
-                context.getService(PlayerDataManager.class).savePlayerStateAsync(player);
+                PlayerDataManager pdm = context.getService(PlayerDataManager.class);
+                if (restoreLocation) {
+                    Location spawn = world.getSpawnLocation().clone();
+                    Location targetSpawn = new Location(world, spawn.getBlockX() + 0.5, spawn.getBlockY(), spawn.getBlockZ() + 0.5, spawn.getYaw(), spawn.getPitch());
+                    player.teleportAsync(targetSpawn);
+                    if (pdm != null) {
+                        pdm.savePlayerState(player, world, true, targetSpawn);
+                    }
+                } else if (pdm != null) {
+                    pdm.savePlayerStateAsync(player);
+                }
             } else {
+                PlayerDataManager pdm = context.getService(PlayerDataManager.class);
                 if (restoreLocation) {
                     Location spawn = world.getSpawnLocation().clone();
-                    player.teleportAsync(new Location(world, spawn.getBlockX() + 0.5, spawn.getBlockY(), spawn.getBlockZ() + 0.5, spawn.getYaw(), spawn.getPitch()));
+                    Location targetSpawn = new Location(world, spawn.getBlockX() + 0.5, spawn.getBlockY(), spawn.getBlockZ() + 0.5, spawn.getYaw(), spawn.getPitch());
+                    player.teleportAsync(targetSpawn);
+                    if (pdm != null) {
+                        pdm.savePlayerState(player, world, true, targetSpawn);
+                    }
+                } else if (pdm != null) {
+                    pdm.savePlayerStateAsync(player);
                 }
-                // If not clearing (startFresh is false or this is an initial server login), persist current state
-                context.getService(PlayerDataManager.class).savePlayerStateAsync(player);
             }
             return;
         }
@@ -211,14 +236,28 @@ public class PlayerStateSerializer {
             if (bKey != null) {
                 World bw = Bukkit.getWorld(bKey);
                 if (bw != null) {
+                    if (player.getUniqueId() != null) {
+                        unloadedRespawnCache.remove(player.getUniqueId());
+                    }
                     player.setRespawnLocation(new Location(bw, state.respawnX, state.respawnY, state.respawnZ, state.respawnYaw, state.respawnPitch), true);
                 } else {
+                    // Preserve respawn coordinates in cache if the target respawn world is currently offline/evicted
+                    if (player.getUniqueId() != null) {
+                        unloadedRespawnCache.put(player.getUniqueId(), new OfflineRespawnData(
+                                state.respawnWorld, state.respawnX, state.respawnY, state.respawnZ, state.respawnYaw, state.respawnPitch));
+                    }
                     player.setRespawnLocation(null, true);
                 }
             } else {
+                if (player.getUniqueId() != null) {
+                    unloadedRespawnCache.remove(player.getUniqueId());
+                }
                 player.setRespawnLocation(null, true);
             }
         } else {
+            if (player.getUniqueId() != null) {
+                unloadedRespawnCache.remove(player.getUniqueId());
+            }
             player.setRespawnLocation(null, true);
         }
 

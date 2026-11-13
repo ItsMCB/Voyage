@@ -1,7 +1,6 @@
 package org.libregalaxy.voyage.listeners;
 
-import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
-import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import io.papermc.paper.event.entity.EntityPortalReadyEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
@@ -61,7 +60,6 @@ class VoyagePortalListenerEdgeCaseTest {
         World world = mock(World.class);
         NamespacedKey nk = NamespacedKey.fromString(key);
         when(world.getKey()).thenReturn(nk);
-        // FIX: Stub getSpawnLocation() so FixedSpawnStrategy does not return null
         when(world.getSpawnLocation()).thenReturn(new Location(world, 0, 64, 0));
         return world;
     }
@@ -146,6 +144,38 @@ class VoyagePortalListenerEdgeCaseTest {
     }
 
     @Test
+    void onPortalReady_whenTargetWorldUnloaded_cancelsReadyEventAndLoadsTargetAsync() {
+        World source = world("custom:void_test");
+        World destination = world("custom:nether");
+        Location sourceSpawn = source.getSpawnLocation();
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(java.util.UUID.randomUUID());
+        when(player.getWorld()).thenReturn(source);
+        when(player.getLocation()).thenReturn(sourceSpawn);
+        when(player.isOnline()).thenReturn(true);
+        when(player.teleportAsync(any(Location.class))).thenReturn(CompletableFuture.completedFuture(true));
+
+        PortalLink link = new PortalLink(
+                destination.getKey(),
+                new FixedSpawnStrategy(),
+                new VanillaNetherGenerator()
+        );
+
+        when(api.getManagedWorld(source.getKey())).thenReturn(Optional.of(current));
+        when(current.getPortalLink(PortalType.NETHER)).thenReturn(Optional.of(link));
+        when(api.getManagedWorld(destination.getKey())).thenReturn(Optional.of(target));
+        when(target.getBukkitWorld()).thenReturn(Optional.empty());
+        when(target.load()).thenReturn(CompletableFuture.completedFuture(destination));
+
+        EntityPortalReadyEvent readyEvent = new EntityPortalReadyEvent(player, null, org.bukkit.PortalType.NETHER);
+        listener.onPortalReady(readyEvent);
+
+        assertTrue(readyEvent.isCancelled(), "EntityPortalReadyEvent must be cancelled while target loads asynchronously");
+        verify(target, times(1)).load();
+        verify(player, times(1)).teleportAsync(any(Location.class));
+    }
+
+    @Test
     void failedDestinationLoad_clearsLoadingState() {
         World source = world("custom:source");
         World destination = world("custom:target");
@@ -182,8 +212,6 @@ class VoyagePortalListenerEdgeCaseTest {
 
             assertTrue(event.isCancelled());
 
-            // After the failure callback has run, a later attempt should be allowed
-            // to invoke load again rather than being permanently stuck.
             PlayerPortalEvent retry = new PlayerPortalEvent(
                     player, source.getSpawnLocation(), null,
                     PlayerTeleportEvent.TeleportCause.NETHER_PORTAL

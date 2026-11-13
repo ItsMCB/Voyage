@@ -1,7 +1,9 @@
 package org.libregalaxy.voyage.commands.world;
 
+import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 import io.papermc.paper.command.brigadier.argument.resolvers.selector.PlayerSelectorArgumentResolver;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
@@ -12,11 +14,14 @@ import org.junit.jupiter.api.Test;
 import org.libregalaxy.voyage.VoyageContext;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.core.VoyageWorldManager;
+import org.mockito.AdditionalAnswers;
+import org.mockito.MockedStatic;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -24,6 +29,7 @@ import static org.mockito.Mockito.*;
 class TeleportScmdTest {
 
     private ServerMock server;
+    private MockedStatic<ArgumentTypes> argumentTypesMock;
     private VoyageContext context;
     private VoyageWorldManager worldManager;
     private TeleportScmd command;
@@ -31,6 +37,9 @@ class TeleportScmdTest {
     @BeforeEach
     void setUp() {
         server = MockBukkit.mock();
+        argumentTypesMock = mockStatic(ArgumentTypes.class);
+        argumentTypesMock.when(ArgumentTypes::namespacedKey).thenReturn(mock(ArgumentType.class));
+        argumentTypesMock.when(ArgumentTypes::player).thenReturn(mock(ArgumentType.class));
         context = mock(VoyageContext.class);
         worldManager = mock(VoyageWorldManager.class);
         when(context.getWorldManager()).thenReturn(worldManager);
@@ -39,13 +48,24 @@ class TeleportScmdTest {
 
     @AfterEach
     void tearDown() {
+        if (argumentTypesMock != null) {
+            argumentTypesMock.close();
+        }
         MockBukkit.unmock();
+    }
+
+    private PlayerMock addPlayerWithAsyncTeleport() {
+        PlayerMock realPlayer = server.addPlayer();
+        PlayerMock player = mock(PlayerMock.class, AdditionalAnswers.delegatesTo(realPlayer));
+        doAnswer(inv -> CompletableFuture.completedFuture(realPlayer.teleport((Location) inv.getArgument(0))))
+                .when(player).teleportAsync(any(Location.class));
+        return player;
     }
 
     @Test
     void execute_defaultsToLogOffLocationWhenAvailable() {
         World targetWorld = server.addSimpleWorld("target-world");
-        PlayerMock player = server.addPlayer();
+        PlayerMock player = addPlayerWithAsyncTeleport();
 
         Location logOffLocation = new Location(targetWorld, 150.0, 72.0, -250.0, 90f, 0f);
         when(worldManager.getPlayerLogOffLocation(targetWorld.getKey(), player.getUniqueId()))
@@ -75,7 +95,7 @@ class TeleportScmdTest {
     @Test
     void execute_fallsBackToSpawnPointWhenNoLogOffLocation() {
         World targetWorld = server.addSimpleWorld("spawn-fallback-world");
-        PlayerMock player = server.addPlayer();
+        PlayerMock player = addPlayerWithAsyncTeleport();
 
         when(worldManager.getPlayerLogOffLocation(targetWorld.getKey(), player.getUniqueId()))
                 .thenReturn(Optional.empty());
@@ -101,7 +121,7 @@ class TeleportScmdTest {
     @Test
     void execute_teleportsToWorldSpawnWhenSpecified() {
         World targetWorld = server.addSimpleWorld("spawn-specified-world");
-        PlayerMock player = server.addPlayer();
+        PlayerMock player = addPlayerWithAsyncTeleport();
 
         // Even if a log-off location is present, specifying SPAWN_POINT must take precedence
         when(worldManager.getPlayerLogOffLocation(targetWorld.getKey(), player.getUniqueId()))
@@ -127,13 +147,14 @@ class TeleportScmdTest {
     void execute_doesNotTeleportToDifferentDimensionIfLogOffWorldMismatches() {
         World requestedWorld = server.addSimpleWorld("requested-world");
         World otherWorld = server.addSimpleWorld("other-world");
-        PlayerMock player = server.addPlayer();
+        PlayerMock player = addPlayerWithAsyncTeleport();
         player.teleport(otherWorld.getSpawnLocation());
 
         // Offline location reported from another world in the shared profile group
+        NamespacedKey otherWorldKey = NamespacedKey.fromString("custom:other-world");
         when(worldManager.getPlayerLogOffLocation(requestedWorld.getKey(), player.getUniqueId()))
                 .thenReturn(Optional.of(new VoyageAPI.OfflineLocation(
-                        otherWorld.getKey(), 50.0, 70.0, 50.0, 0f, 0f
+                        otherWorldKey, 50.0, 70.0, 50.0, 0f, 0f
                 )));
 
         @SuppressWarnings("unchecked")

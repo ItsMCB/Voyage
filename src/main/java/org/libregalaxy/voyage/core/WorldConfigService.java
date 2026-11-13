@@ -10,7 +10,6 @@ import org.bukkit.WorldType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.libregalaxy.voyage.api.ManagedWorld;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.api.builder.WorldBuilder;
 import org.libregalaxy.voyage.api.portal.CoordinateStrategy;
@@ -29,7 +28,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -344,7 +342,6 @@ public class WorldConfigService {
 
     public void loadState(boolean isReload) {
         if (databaseService == null) return;
-        List<CompletableFuture<ManagedWorld>> pending = new ArrayList<>();
         Set<NamespacedKey> loadedKeys = new HashSet<>();
 
         try (Connection conn = databaseService.getConnection()) {
@@ -400,43 +397,58 @@ public class WorldConfigService {
                     Map<PortalType, PortalLink> portalLinks = loadPortalLinks(conn, ns, k);
 
                     if (existing != null) {
-                        existing.setAutoLoad(autoLoad);
+                        existing.setAutoLoadInternal(autoLoad);
                         existing.setDifficultyInternal(diff);
                         existing.setSpawnInternal(spawn);
                         existing.setSpawnAngleInternal(spawnAngle);
                         existing.clearGameRulesInternal();
                         existing.setGameRulesInternal(gamerules);
                         existing.setMetadataInternal(metadata);
-                        existing.clearLinks();
-                        portalLinks.forEach(existing::linkPortal);
+                        existing.setPortalLinksInternal(portalLinks);
                     } else {
-                        WorldBuilderImpl builder = manager.builderInternal(key);
-                        builder.environment(env)
-                                .seed(seed)
-                                .type(isVoid ? WorldType.FLAT : worldType)
-                                .generator(isVoid ? (plugin.getName() + ":void") : generator)
-                                .generatorSettings(isVoid ? VoyageAPI.VANILLA_VOID_SETTINGS : generatorSettings)
-                                .autoLoad(autoLoad)
-                                .difficulty(diff)
-                                .generateStructures(!isVoid && structures);
+                        ManagedWorldImpl mw = new ManagedWorldImpl(
+                                key,
+                                manager,
+                                false,
+                                env,
+                                seed,
+                                isVoid ? null : generator,
+                                isVoid ? VoyageAPI.VANILLA_VOID_SETTINGS : generatorSettings,
+                                isVoid ? WorldType.FLAT : worldType,
+                                autoLoad,
+                                portalLinks,
+                                !isVoid && structures
+                        );
+                        mw.setDifficultyInternal(diff);
+                        if (spawn != null) mw.setSpawnInternal(spawn);
+                        if (spawnAngle != null) mw.setSpawnAngleInternal(spawnAngle);
+                        mw.setGameRulesInternal(gamerules);
+                        mw.setMetadataInternal(metadata);
 
-                        if (spawn != null) builder.spawn(spawn[0], spawn[1], spawn[2]);
-                        gamerules.forEach((rule, val) -> applyGameRuleToBuilder(builder, rule, val));
-                        builder.metadata(metadata);
-                        portalLinks.forEach(builder::linkPortal);
+                        manager.registerLoadedWorldFromDb(mw);
 
-                        final float[] finalSpawnAngle = spawnAngle;
-                        pending.add(builder.create().handle((mw, ex) -> {
-                            if (ex != null) {
+                        if (autoLoad) {
+                            Runnable loadAction = () -> mw.load().exceptionally(ex -> {
                                 Throwable cause = ex instanceof CompletionException ? ex.getCause() : ex;
                                 plugin.getLogger().log(Level.WARNING, "Failed to mount '" + key + "': " + cause.getMessage());
                                 return null;
+                            });
+
+                            if (isReload) {
+                                loadAction.run();
+                            } else {
+                                // Defer initial boot auto-load to the first server tick so default worlds and POSTWORLD generator plugins load first
+                                try {
+                                    if (Bukkit.getScheduler() != null) {
+                                        Bukkit.getScheduler().runTask(plugin, loadAction);
+                                    } else {
+                                        loadAction.run();
+                                    }
+                                } catch (Throwable ignored) {
+                                    loadAction.run();
+                                }
                             }
-                            if (mw instanceof ManagedWorldImpl impl && finalSpawnAngle != null) {
-                                impl.setSpawnAngleInternal(finalSpawnAngle);
-                            }
-                            return mw;
-                        }));
+                        }
                     }
                 }
             }
@@ -450,15 +462,10 @@ public class WorldConfigService {
             toRemove.removeAll(loadedKeys);
             for (NamespacedKey removeKey : toRemove) {
                 manager.getRegistry().remove(removeKey);
-                World w = Bukkit.getWorld(removeKey);
-                if (w != null) {
-                    Bukkit.unloadWorld(w, true);
+                if (Bukkit.getWorld(removeKey) != null) {
+                    manager.unload(removeKey, true);
                 }
             }
-        }
-
-        if (!pending.isEmpty()) {
-            CompletableFuture.allOf(pending.toArray(new CompletableFuture[0]));
         }
     }
 

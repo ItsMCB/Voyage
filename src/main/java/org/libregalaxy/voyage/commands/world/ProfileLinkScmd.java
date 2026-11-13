@@ -21,6 +21,7 @@ import org.libregalaxy.voyage.api.VoyageAPI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
 
@@ -143,6 +144,8 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
             }
 
             String resolvedProfileId;
+            String previewTargetProfileId;
+            boolean requiresTargetWorldGroupInit = false;
             NamespacedKey targetWorldKey = parseWorldKey(targetInput);
 
             if (targetWorldKey != null && (api.worldExists(targetWorldKey) || api.getManagedWorld(targetWorldKey).isPresent() || Bukkit.getWorld(targetWorldKey) != null)) {
@@ -153,13 +156,16 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
                 String targetWorldProfile = api.getWorldDataProfile(targetWorldKey);
                 if (targetWorldProfile.startsWith("group:")) {
                     resolvedProfileId = targetWorldProfile.substring(6);
+                    previewTargetProfileId = resolvedProfileId;
                 } else {
-                    String newGroupName = sanitizeGroupName(targetWorldKey.getKey());
-                    resolvedProfileId = newGroupName;
-                    api.setWorldDataProfile(targetWorldKey, newGroupName, VoyageAPI.DataLinkMergeStrategy.DESTINATION_PRIORITY);
+                    resolvedProfileId = sanitizeGroupName(targetWorldKey.getKey());
+                    // Preview against the target world's current isolated profile so --dry-run never mutates DB state
+                    previewTargetProfileId = targetWorldProfile;
+                    requiresTargetWorldGroupInit = true;
                 }
             } else {
                 resolvedProfileId = targetInput.startsWith("group:") ? targetInput.substring(6) : targetInput;
+                previewTargetProfileId = resolvedProfileId;
             }
 
             if (!resolvedProfileId.equalsIgnoreCase("none")) {
@@ -198,47 +204,60 @@ public class ProfileLinkScmd extends VexelSenderSubCommand<VoyageContext> {
                 return;
             }
 
+            final VoyageAPI.DataLinkMergeStrategy finalStrategy = strategy;
+            final String finalResolvedProfileId = resolvedProfileId;
+            final String finalPreviewProfileId = previewTargetProfileId;
+
             if (isDryRun) {
-                VoyageAPI.DataLinkPreview preview = api.previewWorldDataProfile(worldKey, resolvedProfileId, strategy);
+                Bukkit.getScheduler().runTaskAsynchronously(context.getPlugin(), () -> {
+                    VoyageAPI.DataLinkPreview preview = api.previewWorldDataProfile(worldKey, finalPreviewProfileId, finalStrategy);
+                    Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
+                        TextUtils.send(sender, "<dark_gray><st>          </st> <color:#e98df5>\ud83d\udcc4 Merge Preview <white><current></white> \u2192 <white><target></white> \ud83d\udcc4</color> <st>          </st> </dark_gray>", Placeholder.unparsed("current", currentProfile), Placeholder.unparsed("target", targetLabel));
+                        TextUtils.send(sender, "  • <green>Transferred:</green> <white><count></white> player(s) have data unique to <white><current></white> and will be added to <white><target></white>.", Placeholder.unparsed("count", String.valueOf(preview.newToTarget())), Placeholder.unparsed("current", currentProfile), Placeholder.unparsed("target", targetLabel));
+                        TextUtils.send(sender, "  • <yellow>Unaffected:</yellow> <white><count></white> player(s) exist only in <white><target></white> and remain untouched.", Placeholder.unparsed("count", String.valueOf(preview.targetOnly())), Placeholder.unparsed("target", targetLabel));
+                        TextUtils.send(sender, "  • <red>Conflicts:</red> <white><count></white> player(s) have data in BOTH profiles.", Placeholder.unparsed("count", String.valueOf(preview.conflicts())));
 
-                TextUtils.send(sender, "<dark_gray><st>          </st> <color:#e98df5>\ud83d\udcc4 Merge Preview <white><current></white> \u2192 <white><target></white> \ud83d\udcc4</color> <st>          </st> </dark_gray>", Placeholder.unparsed("current", currentProfile), Placeholder.unparsed("target", targetLabel));
-                TextUtils.send(sender, "  • <green>Transferred:</green> <white><count></white> player(s) have data unique to <white><current></white> and will be added to <white><target></white>.", Placeholder.unparsed("count", String.valueOf(preview.newToTarget())), Placeholder.unparsed("current", currentProfile), Placeholder.unparsed("target", targetLabel));
-                TextUtils.send(sender, "  • <yellow>Unaffected:</yellow> <white><count></white> player(s) exist only in <white><target></white> and remain untouched.", Placeholder.unparsed("count", String.valueOf(preview.targetOnly())), Placeholder.unparsed("target", targetLabel));
-                TextUtils.send(sender, "  • <red>Conflicts:</red> <white><count></white> player(s) have data in BOTH profiles.", Placeholder.unparsed("count", String.valueOf(preview.conflicts())));
+                        if (preview.conflicts() > 0) {
+                            if (finalStrategy == VoyageAPI.DataLinkMergeStrategy.DESTINATION_PRIORITY) {
+                                TextUtils.send(sender, "    <red>\u21b3 Because of DESTINATION_PRIORITY, their data in <white><current></white> will be PERMANENTLY LOST.</red>", Placeholder.unparsed("current", currentProfile));
+                            } else {
+                                TextUtils.send(sender, "    <red>\u21b3 Because of SOURCE_PRIORITY, their data in <white><target></white> will be PERMANENTLY LOST.</red>", Placeholder.unparsed("target", targetLabel));
+                            }
+                        }
 
-                if (preview.conflicts() > 0) {
-                    if (strategy == VoyageAPI.DataLinkMergeStrategy.DESTINATION_PRIORITY) {
-                        TextUtils.send(sender, "    <red>\u21b3 Because of DESTINATION_PRIORITY, their data in <white><current></white> will be PERMANENTLY LOST.</red>", Placeholder.unparsed("current", currentProfile));
-                    } else {
-                        TextUtils.send(sender, "    <red>\u21b3 Because of SOURCE_PRIORITY, their data in <white><target></white> will be PERMANENTLY LOST.</red>", Placeholder.unparsed("target", targetLabel));
-                    }
-                }
-
-                String cmd = "/world profile-link create " + worldKey.asString() + " " + resolvedProfileId + " " + strategy.name();
-                TextUtils.send(sender, "  <click:run_command:'" + cmd + "'><hover:show_text:'Click to execute'><green>[Click to confirm]</green></hover></click>");
+                        String cmd = "/world profile-link create " + worldKey.asString() + " " + finalResolvedProfileId + " " + finalStrategy.name();
+                        TextUtils.send(sender, "  <click:run_command:'" + cmd + "'><hover:show_text:'Click to execute'><green>[Click to confirm]</green></hover></click>");
+                    });
+                });
                 return;
             }
 
             TextUtils.send(sender, " ↪ <yellow>Linking data for <white><world></white>...</yellow>", Placeholder.unparsed("world", worldKey.asString()));
 
-            api.setWorldDataProfile(worldKey, resolvedProfileId, strategy).thenRun(() -> {
-                Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
-                    if ("none".equalsIgnoreCase(resolvedProfileId)) {
-                        TextUtils.send(sender, " ↪ <green>Data for <white><world></white> is now isolated.</green>", Placeholder.unparsed("world", worldKey.asString()));
-                        context.getWebhookService().notify("PROFILE_LINK", sender, "Isolated data for " + worldKey.asString());
-                    } else {
-                        TextUtils.send(sender, " ↪ <green>Data for <white><world></white> linked to profile <white><profile></white>.</green>", Placeholder.unparsed("world", worldKey.asString()), Placeholder.unparsed("profile", resolvedProfileId));
-                        context.getWebhookService().notify("PROFILE_LINK", sender, "Linked data for " + worldKey.asString() + " to profile " + resolvedProfileId);
-                    }
-                });
-            }).exceptionally(ex -> {
-                Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
-                    Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
-                    TextUtils.send(sender, "<red>Failed to link data: <error></red>", Placeholder.unparsed("error", cause.getMessage() != null ? cause.getMessage() : ex.getClass().getSimpleName()));
-                });
-                context.getPlugin().getLogger().log(java.util.logging.Level.SEVERE, "Data link failed", ex);
-                return null;
-            });
+            CompletableFuture<Void> initTargetGroupFuture = (requiresTargetWorldGroupInit && targetWorldKey != null)
+                    ? api.setWorldDataProfile(targetWorldKey, finalResolvedProfileId, VoyageAPI.DataLinkMergeStrategy.DESTINATION_PRIORITY)
+                    : CompletableFuture.completedFuture(null);
+
+            initTargetGroupFuture
+                    .thenCompose(v -> api.setWorldDataProfile(worldKey, finalResolvedProfileId, finalStrategy))
+                    .thenRun(() -> {
+                        Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
+                            if ("none".equalsIgnoreCase(finalResolvedProfileId)) {
+                                TextUtils.send(sender, " ↪ <green>Data for <white><world></white> is now isolated.</green>", Placeholder.unparsed("world", worldKey.asString()));
+                                context.getWebhookService().notify("PROFILE_LINK", sender, "Isolated data for " + worldKey.asString());
+                            } else {
+                                TextUtils.send(sender, " ↪ <green>Data for <white><world></white> linked to profile <white><profile></white>.</green>", Placeholder.unparsed("world", worldKey.asString()), Placeholder.unparsed("profile", finalResolvedProfileId));
+                                context.getWebhookService().notify("PROFILE_LINK", sender, "Linked data for " + worldKey.asString() + " to profile " + finalResolvedProfileId);
+                            }
+                        });
+                    }).exceptionally(ex -> {
+                        Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
+                            Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                            TextUtils.send(sender, "<red>Failed to link data: <error></red>", Placeholder.unparsed("error", cause.getMessage() != null ? cause.getMessage() : ex.getClass().getSimpleName()));
+                        });
+                        context.getPlugin().getLogger().log(java.util.logging.Level.SEVERE, "Data link failed", ex);
+                        return null;
+                    });
         } else {
             TextUtils.send(sender, "<red>Invalid action: <action>. Use 'create' or 'break'.</red>", Placeholder.unparsed("action", actionStr));
         }

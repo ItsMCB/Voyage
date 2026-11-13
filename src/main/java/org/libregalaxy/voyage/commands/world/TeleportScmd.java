@@ -79,7 +79,17 @@ public class TeleportScmd extends VexelPlayerSubCommand<VoyageContext> {
             Optional<ManagedWorld> mw = api.getManagedWorld(key);
             if (mw.isPresent()) {
                 TextUtils.send(player, "<color:#e98df5>ℹ</color> <yellow>Loading dimension <white><world></white> and teleporting you to it...</yellow>", Placeholder.unparsed("world", key.asString()));
-                mw.get().load().thenAccept(loaded -> teleportTargets(player, targets, loaded, key, specifySpawn, api));
+                mw.get().load()
+                        .thenAccept(loaded -> teleportTargets(player, targets, loaded, key, specifySpawn, api))
+                        .exceptionally(ex -> {
+                            Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
+                                Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                                TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Failed to load dimension <white><world></white>: <error></red>",
+                                        Placeholder.unparsed("world", key.asString()),
+                                        Placeholder.unparsed("error", cause != null && cause.getMessage() != null ? cause.getMessage() : "unknown error"));
+                            });
+                            return null;
+                        });
             } else {
                 TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Dimension <white><world></white> is not loaded or managed by Voyage.</red>", Placeholder.unparsed("world", key.asString()));
             }

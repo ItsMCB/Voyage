@@ -1,11 +1,13 @@
 package org.libregalaxy.voyage.listeners;
 
+import io.papermc.paper.event.entity.EntityPortalReadyEvent;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.event.player.PlayerPortalEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -174,7 +176,9 @@ class VoyagePortalListenerTest {
     void onPortalEnter_linkExists_targetLoaded_nonVanillaGenerator_cancelsAndTeleports() {
         World sourceWorld = mockWorld("custom", "source3");
         World targetWorld = mockWorld("custom", "target3");
-        PlayerMock player = server.addPlayer();
+        org.bukkit.entity.Player player = mock(org.bukkit.entity.Player.class);
+        when(player.getUniqueId()).thenReturn(java.util.UUID.randomUUID());
+        when(player.teleportAsync(any(Location.class))).thenReturn(CompletableFuture.completedFuture(true));
 
         NamespacedKey targetKey = targetWorld.getKey();
         PortalLink link = new PortalLink(targetKey, new FixedSpawnStrategy(), new NoneGenerator());
@@ -191,6 +195,8 @@ class VoyagePortalListenerTest {
         listener.onPortalEnter(event);
 
         assertTrue(event.isCancelled(), "Should cancel — non-vanilla generator handles teleport directly");
+        verify(player).setPortalCooldown(anyInt());
+        verify(player).teleportAsync(targetWorld.getSpawnLocation());
     }
 
     @Test
@@ -218,16 +224,17 @@ class VoyagePortalListenerTest {
     @Test
     void onPortalEnter_targetNotLoaded_cancelsAndStartsAsyncLoad() {
         World sourceWorld = mockWorld("custom", "source_unloaded");
+        World loadedTargetWorld = server.addSimpleWorld("unloaded_target");
         PlayerMock player = server.addPlayer();
 
-        NamespacedKey targetKey = NamespacedKey.fromString("custom:unloaded_target");
+        NamespacedKey targetKey = loadedTargetWorld.getKey();
         PortalLink link = new PortalLink(targetKey, new FixedSpawnStrategy(), new NoneGenerator());
 
         when(mockApi.getManagedWorld(sourceWorld.getKey())).thenReturn(Optional.of(mockCurrentWorld));
         when(mockCurrentWorld.getPortalLink(PortalType.NETHER)).thenReturn(Optional.of(link));
         when(mockApi.getManagedWorld(targetKey)).thenReturn(Optional.of(mockTargetWorld));
         when(mockTargetWorld.isLoaded()).thenReturn(false);
-        when(mockTargetWorld.load()).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockTargetWorld.load()).thenReturn(CompletableFuture.completedFuture(loadedTargetWorld));
 
         PlayerPortalEvent event = new PlayerPortalEvent(
                 player, sourceWorld.getSpawnLocation(), null, PlayerTeleportEvent.TeleportCause.NETHER_PORTAL
@@ -236,5 +243,54 @@ class VoyagePortalListenerTest {
 
         assertTrue(event.isCancelled(), "Should cancel while loading target world");
         assertTrue(player.getPortalCooldown() > 0, "Should set portal cooldown during async load");
+    }
+
+    @Test
+    void onPortalReady_whenLinkTargetIsLoaded_setsTargetWorldForPaperPortalEngine() {
+        World sourceWorld = mockWorld("custom", "void_test");
+        World targetWorld = mockWorld("custom", "nether");
+
+        org.bukkit.entity.Player player = mock(org.bukkit.entity.Player.class);
+        when(player.getWorld()).thenReturn(sourceWorld);
+        when(player.getUniqueId()).thenReturn(java.util.UUID.randomUUID());
+
+        PortalLink link = new PortalLink(targetWorld.getKey(), new VanillaScalingStrategy(8.0), new VanillaNetherGenerator());
+        when(mockApi.getManagedWorld(sourceWorld.getKey())).thenReturn(Optional.of(mockCurrentWorld));
+        when(mockCurrentWorld.getPortalLink(PortalType.NETHER)).thenReturn(Optional.of(link));
+        when(mockApi.getManagedWorld(targetWorld.getKey())).thenReturn(Optional.of(mockTargetWorld));
+        when(mockTargetWorld.getBukkitWorld()).thenReturn(Optional.of(targetWorld));
+
+        EntityPortalReadyEvent readyEvent = new EntityPortalReadyEvent(player, null, org.bukkit.PortalType.NETHER);
+        listener.onPortalReady(readyEvent);
+
+        assertFalse(readyEvent.isCancelled());
+        assertSame(targetWorld, readyEvent.getTargetWorld(),
+                "EntityPortalReadyEvent must set the linked target world so Paper fires PlayerPortalEvent");
+    }
+
+    @Test
+    void computeDestination_withVanillaNetherGenerator_adjustsBuriedCoordinateAndBuildsPortalFrame() {
+        World targetWorld = server.addSimpleWorld("nether_safe_landing");
+        // Bury Y=64..70 in solid Netherrack, with air at Y=71 and Y=72
+        for (int y = 64; y <= 70; y++) {
+            targetWorld.getBlockAt(80, y, 80).setType(Material.NETHERRACK);
+        }
+        targetWorld.getBlockAt(80, 71, 80).setType(Material.AIR);
+        targetWorld.getBlockAt(80, 72, 80).setType(Material.AIR);
+
+        PortalLink link = new PortalLink(
+                targetWorld.getKey(),
+                new VanillaScalingStrategy(8.0),
+                new VanillaNetherGenerator()
+        );
+
+        Location from = new Location(targetWorld, 10.0, 64.0, 10.0);
+        Location dest = VoyagePortalListener.computeDestination(link, PortalType.NETHER, from, targetWorld);
+
+        assertEquals(80.0, dest.getX());
+        assertEquals(71.0, dest.getY(), "Buried Nether portal landing must scan upward to safe air above solid floor");
+        assertEquals(80.0, dest.getZ());
+        assertEquals(Material.NETHER_PORTAL, targetWorld.getBlockAt(80, 71, 80).getType(),
+                "VanillaNetherGenerator must place a NETHER_PORTAL block at the destination");
     }
 }

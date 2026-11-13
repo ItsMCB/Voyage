@@ -4,7 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -100,15 +99,24 @@ public interface VoyageAPI {
         return isVoidWorld(generator, generatorSettings);
     }
 
+    private static boolean isLiquidMaterial(@NotNull Material type) {
+        return type == Material.WATER || type == Material.LAVA || type == Material.BUBBLE_COLUMN;
+    }
+
     /**
      * Checks whether a block is safe to stand on (non-solid, air, liquids, and environmental hazards are rejected).
      */
     static boolean isSafeFloor(@Nullable Block block) {
         if (block == null) return false;
         Material type = block.getType();
-        if (type.isAir() || !type.isSolid() || block.isLiquid()) {
+        if (type.isAir() || !type.isSolid() || isLiquidMaterial(type)) {
             return false;
         }
+        try {
+            if (block.isLiquid()) {
+                return false;
+            }
+        } catch (Throwable ignored) {}
         return type != Material.MAGMA_BLOCK
                 && type != Material.CACTUS
                 && type != Material.CAMPFIRE
@@ -124,14 +132,22 @@ public interface VoyageAPI {
     static boolean isPassableAndSafe(@Nullable Block block) {
         if (block == null) return false;
         Material type = block.getType();
-        if (block.isLiquid()) return false;
+        if (isLiquidMaterial(type)) return false;
+        try {
+            if (block.isLiquid()) return false;
+        } catch (Throwable ignored) {}
         if (type == Material.FIRE || type == Material.SOUL_FIRE
                 || type == Material.SWEET_BERRY_BUSH || type == Material.WITHER_ROSE
                 || type == Material.POWDER_SNOW || type == Material.NETHER_PORTAL
                 || type == Material.END_PORTAL) {
             return false;
         }
-        return type.isAir() || block.isPassable();
+        if (type.isAir()) return true;
+        try {
+            return block.isPassable();
+        } catch (Throwable ignored) {
+            return !type.isSolid();
+        }
     }
 
     /**

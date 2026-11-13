@@ -1,5 +1,6 @@
 package org.libregalaxy.voyage.listeners;
 
+import io.papermc.paper.event.entity.EntityPortalReadyEvent;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -50,6 +51,64 @@ public class VoyagePortalListener implements Listener {
         this.plugin = plugin;
     }
 
+    /**
+     * Intercepts Paper's pre-portal readiness check for Nether portals.
+     * In Paper 26.x, if EntityPortalReadyEvent has a null targetWorld (common in custom
+     * dimensions or when allow-nether is false), PlayerPortalEvent will never fire.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPortalReady(@NotNull EntityPortalReadyEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        if (event.getPortalType() != org.bukkit.PortalType.NETHER) {
+            return;
+        }
+
+        World currentWorld = player.getWorld();
+        if (currentWorld == null) {
+            return;
+        }
+
+        Optional<ManagedWorld> optCurrent = api.getManagedWorld(currentWorld.getKey());
+        Optional<PortalLink> optLink = optCurrent.flatMap(mw -> mw.getPortalLink(PortalType.NETHER));
+
+        if (optLink.isEmpty()) {
+            if (!NamespacedKey.MINECRAFT.equals(currentWorld.getKey().getNamespace())) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        if (loadingWorldPlayers.contains(player.getUniqueId())) {
+            event.setCancelled(true);
+            return;
+        }
+
+        PortalLink link = optLink.get();
+        Optional<ManagedWorld> optTarget = api.getManagedWorld(link.targetWorld());
+        World loadedTargetBukkit = optTarget.flatMap(ManagedWorld::getBukkitWorld)
+                .orElseGet(() -> Bukkit.getWorld(link.targetWorld()));
+
+        if (loadedTargetBukkit != null) {
+            // Bind the loaded target world so Paper proceeds to fire PlayerPortalEvent
+            event.setTargetWorld(loadedTargetBukkit);
+            return;
+        }
+
+        if (optTarget.isEmpty()) {
+            event.setCancelled(true);
+            TextUtils.send(player,
+                    " ↪ <red>Destination dimension <white><world></white> is not managed by Voyage.</red>",
+                    Placeholder.unparsed("world", link.targetWorld().asString()));
+            return;
+        }
+
+        // Destination is a ManagedWorld that is currently unloaded — load it asynchronously and teleport
+        event.setCancelled(true);
+        loadAndTeleportAsync(player, player.getLocation(), link, PortalType.NETHER, optTarget.get());
+    }
+
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPortalEnter(@NotNull PlayerPortalEvent event) {
         Location fromLoc = event.getFrom();
@@ -84,7 +143,9 @@ public class VoyagePortalListener implements Listener {
         }
 
         Optional<ManagedWorld> optTarget = api.getManagedWorld(link.targetWorld());
-        if (optTarget.isEmpty()) {
+        World fallbackBukkitTarget = optTarget.isEmpty() ? Bukkit.getWorld(link.targetWorld()) : null;
+
+        if (optTarget.isEmpty() && fallbackBukkitTarget == null) {
             event.setCancelled(true);
             TextUtils.send(player,
                     " ↪ <red>Destination dimension <white><world></white> is not managed by Voyage.</red>",
@@ -92,56 +153,15 @@ public class VoyagePortalListener implements Listener {
             return;
         }
 
-        ManagedWorld target = optTarget.get();
-
-        if (!target.isLoaded()) {
+        if (optTarget.isPresent() && !optTarget.get().isLoaded()) {
             // Intercept and handle the load + teleport asynchronously.
             event.setCancelled(true);
-            player.setPortalCooldown(PORTAL_COOLDOWN_TICKS);
-            loadingWorldPlayers.add(player.getUniqueId());
-
-            TextUtils.send(player,
-                    " ↪ <yellow>Loading dimension <white><world></white>, please wait…</yellow>",
-                    Placeholder.unparsed("world", link.targetWorld().asString()));
-
-            target.load()
-                    .thenAccept(loadedWorld -> {
-                        if (!player.isOnline()) {
-                            loadingWorldPlayers.remove(player.getUniqueId());
-                            return;
-                        }
-
-                        Location dest = computeDestination(link, type, fromLoc, loadedWorld);
-                        player.teleportAsync(dest).whenComplete((success, ex) ->
-                                Bukkit.getScheduler().runTask(plugin, () -> {
-                                    loadingWorldPlayers.remove(player.getUniqueId());
-                                    if (ex != null || !Boolean.TRUE.equals(success)) {
-                                        player.setPortalCooldown(PORTAL_COOLDOWN_TICKS);
-                                        String err = ex != null ? ex.getMessage() : "teleport returned false";
-                                        TextUtils.send(player,
-                                                " ↪ <red>Teleport to <white><world></white> failed: <error></red>",
-                                                Placeholder.unparsed("world", link.targetWorld().asString()),
-                                                Placeholder.unparsed("error", err));
-                                    }
-                                }));
-                    })
-                    .exceptionally(ex -> {
-                        Bukkit.getScheduler().runTask(plugin, () -> {
-                            loadingWorldPlayers.remove(player.getUniqueId());
-                            if (player.isOnline()) {
-                                TextUtils.send(player,
-                                        " ↪ <red>Failed to load dimension <white><world></white>: <error></red>",
-                                        Placeholder.unparsed("world", link.targetWorld().asString()),
-                                        Placeholder.unparsed("error", ex.getMessage()));
-                            }
-                        });
-                        return null;
-                    });
+            loadAndTeleportAsync(player, fromLoc, link, type, optTarget.get());
             return;
         }
 
         // Destination already loaded — handle synchronously.
-        World targetBukkit = target.getBukkitWorld().orElse(null);
+        World targetBukkit = optTarget.flatMap(ManagedWorld::getBukkitWorld).orElse(fallbackBukkitTarget);
         if (targetBukkit == null) {
             event.setCancelled(true);
             TextUtils.send(player,
@@ -151,15 +171,65 @@ public class VoyagePortalListener implements Listener {
         }
 
         if (type == PortalType.NETHER && link.generator() instanceof VanillaNetherGenerator) {
-            // Let Paper's native Nether portal engine build the portal frame;
-            // Voyage only redirects the destination.
-            event.setTo(link.coordinateStrategy().calculate(fromLoc, targetBukkit));
+            // Let Paper's native Nether portal engine find or build the portal frame;
+            // Voyage redirects the destination world and scaled coordinates.
+            Location intended = link.coordinateStrategy().calculate(fromLoc, targetBukkit);
+            event.setTo(intended);
             event.setCanCreatePortal(true);
         } else {
             event.setCancelled(true);
             player.setPortalCooldown(PORTAL_COOLDOWN_TICKS);
             player.teleportAsync(computeDestination(link, type, fromLoc, targetBukkit));
         }
+    }
+
+    private void loadAndTeleportAsync(@NotNull Player player,
+                                      @NotNull Location fromLoc,
+                                      @NotNull PortalLink link,
+                                      @NotNull PortalType type,
+                                      @NotNull ManagedWorld target) {
+        player.setPortalCooldown(PORTAL_COOLDOWN_TICKS);
+        loadingWorldPlayers.add(player.getUniqueId());
+
+        TextUtils.send(player,
+                " ↪ <yellow>Loading dimension <white><world></white>, please wait…</yellow>",
+                Placeholder.unparsed("world", link.targetWorld().asString()));
+
+        target.load()
+                .thenAccept(loadedWorld -> {
+                    if (loadedWorld == null || !player.isOnline()) {
+                        loadingWorldPlayers.remove(player.getUniqueId());
+                        return;
+                    }
+
+                    Location dest = computeDestination(link, type, fromLoc, loadedWorld);
+                    player.teleportAsync(dest).whenComplete((success, ex) ->
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                loadingWorldPlayers.remove(player.getUniqueId());
+                                if (ex != null || !Boolean.TRUE.equals(success)) {
+                                    player.setPortalCooldown(PORTAL_COOLDOWN_TICKS);
+                                    String err = ex != null ? ex.getMessage() : "teleport returned false";
+                                    TextUtils.send(player,
+                                            " ↪ <red>Teleport to <white><world></white> failed: <error></red>",
+                                            Placeholder.unparsed("world", link.targetWorld().asString()),
+                                            Placeholder.unparsed("error", err));
+                                }
+                            }));
+                })
+                .exceptionally(ex -> {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        loadingWorldPlayers.remove(player.getUniqueId());
+                        if (player.isOnline()) {
+                            Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                            String msg = cause != null && cause.getMessage() != null ? cause.getMessage() : "unknown error";
+                            TextUtils.send(player,
+                                    " ↪ <red>Failed to load dimension <white><world></white>: <error></red>",
+                                    Placeholder.unparsed("world", link.targetWorld().asString()),
+                                    Placeholder.unparsed("error", msg));
+                        }
+                    });
+                    return null;
+                });
     }
 
     @EventHandler
@@ -172,19 +242,16 @@ public class VoyagePortalListener implements Listener {
     // -------------------------------------------------------------------------
 
     /**
-     * Computes the final teleport destination.
-     *
-     * Vanilla Nether generation is delegated to Paper only for an actual Nether
-     * portal event. A VanillaNetherGenerator used by an END portal link must not
-     * receive the native-Nether treatment.
+     * Computes the final teleport destination when Voyage handles the teleport
+     * directly (either for non-vanilla generators or after an async world load).
      */
-    private static @NotNull Location computeDestination(@NotNull PortalLink link,
-                                                        @NotNull PortalType interceptedType,
-                                                        @NotNull Location from,
-                                                        @NotNull World targetWorld) {
+    static @NotNull Location computeDestination(@NotNull PortalLink link,
+                                                @NotNull PortalType interceptedType,
+                                                @NotNull Location from,
+                                                @NotNull World targetWorld) {
         Location intended = link.coordinateStrategy().calculate(from, targetWorld);
 
-        if (interceptedType == PortalType.NETHER
+        if (interceptedType != PortalType.NETHER
                 && link.generator() instanceof VanillaNetherGenerator) {
             return intended;
         }

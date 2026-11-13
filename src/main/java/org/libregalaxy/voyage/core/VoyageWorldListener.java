@@ -11,6 +11,8 @@ import org.bukkit.event.world.WorldUnloadEvent;
 import org.jetbrains.annotations.NotNull;
 import org.libregalaxy.voyage.api.events.VoyageWorldUnloadEvent;
 
+import java.util.Objects;
+
 public class VoyageWorldListener implements Listener {
 
     private final VoyageWorldManager worldManager;
@@ -43,7 +45,7 @@ public class VoyageWorldListener implements Listener {
                 GameRule<?> rule = event.getGameRule();
                 String valStr = event.getValue();
                 Object parsedVal = WorldConfigService.parseGameRuleValue(rule, valStr);
-                if (parsedVal != null) {
+                if (parsedVal != null && !Objects.equals(impl.getGameRules().get(rule), parsedVal)) {
                     impl.setGameRuleInternal(rule, parsedVal);
                     worldManager.saveWorld(impl);
                 }

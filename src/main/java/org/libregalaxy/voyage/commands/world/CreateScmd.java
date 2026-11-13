@@ -12,9 +12,12 @@ import me.itsmcb.vexelcore.bukkit.api.framework.VexelPlayerSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Difficulty;
 import org.bukkit.GameRule;
+import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
@@ -218,11 +221,22 @@ public class CreateScmd extends VexelPlayerSubCommand<VoyageContext> {
             }
         }
 
+        final boolean isVoidPreset = VoyageAPI.isVoidWorld(presetName, generator, generatorSettings);
+
         builder.create().thenAccept(managedWorld -> {
             context.getWebhookService().notify("WORLD_CREATE", player, "Created dimension " + namespacedKey.asString());
 
             managedWorld.getBukkitWorld().ifPresent(world -> {
-                player.teleportAsync(world.getSpawnLocation()).thenAccept(success -> {
+                Location spawnLoc = world.getSpawnLocation().clone();
+                if (isVoidPreset || VoyageAPI.isVoidWorld(managedWorld.getGenerator().orElse(null), managedWorld.getGeneratorSettings().orElse(null))) {
+                    try {
+                        Block floor = world.getBlockAt(spawnLoc.getBlockX(), spawnLoc.getBlockY() - 1, spawnLoc.getBlockZ());
+                        if (floor != null && floor.getType().isAir()) {
+                            floor.setType(Material.BEDROCK, false);
+                        }
+                    } catch (Throwable ignored) {}
+                }
+                player.teleportAsync(spawnLoc).thenAccept(success -> {
                     if (success) {
                         TextUtils.send(player, "<green>Created and teleported to world <white><world></white>!</green>", Placeholder.unparsed("world", namespacedKey.asString()));
                     } else {

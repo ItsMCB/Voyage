@@ -73,21 +73,57 @@ public class WorldExportService {
         return exportWorld(worldKey, targetZipFile, primaryPlayer, displayName, includeRootFolder, true);
     }
 
+    private static @Nullable World findLoadedBukkitWorld(@NotNull NamespacedKey worldKey) {
+        World byKey = Bukkit.getWorld(worldKey);
+        if (byKey != null) return byKey;
+        if (Bukkit.getWorlds() != null) {
+            for (World w : Bukkit.getWorlds()) {
+                if (worldKey.equals(w.getKey())) {
+                    return w;
+                }
+            }
+        }
+        return null;
+    }
+
+    private @Nullable World resolveMainWorld() {
+        World main = worldManager.getMainLevel();
+        if (main != null) {
+            return main;
+        }
+        try {
+            List<World> worlds = Bukkit.getWorlds();
+            if (worlds != null && !worlds.isEmpty()) {
+                return worlds.getFirst();
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
     public CompletableFuture<Void> exportWorld(@NotNull NamespacedKey worldKey, @NotNull Path targetZipFile,
                                                @Nullable UUID primaryPlayer, @Nullable String displayName,
                                                boolean includeRootFolder,
                                                boolean includePlayerData) {
-        if (worldKey.equals(Bukkit.getWorlds().getFirst().getKey())) {
+        World mainWorld = resolveMainWorld();
+        if (mainWorld != null && worldKey.equals(mainWorld.getKey())) {
             return CompletableFuture.failedFuture(new IllegalStateException("Cannot export the main level."));
         }
 
-        exportingWorlds.add(worldKey);
+        if (worldManager.getManagedWorld(worldKey).isEmpty() && findLoadedBukkitWorld(worldKey) != null) {
+            return CompletableFuture.failedFuture(new IllegalStateException(
+                    "World '" + worldKey + "' is loaded but not managed by Voyage. Track it with '/world manage track " + worldKey + "' before exporting."));
+        }
+
+        if (!claimExport(worldKey)) {
+            return CompletableFuture.failedFuture(new IllegalStateException(
+                    "World '" + worldKey + "' is already being exported, cloned, or deleted."));
+        }
 
         CompletableFuture<Void> exportFuture = new CompletableFuture<>();
 
         Runnable syncPreparation = () -> {
             try {
-                World world = Bukkit.getWorld(worldKey);
+                World world = findLoadedBukkitWorld(worldKey);
                 boolean wasLoaded = world != null;
 
                 // Capture the exact folder while the world is still loaded and actively mounted in Bukkit
@@ -140,8 +176,10 @@ public class WorldExportService {
                     }
                 }
 
+                World fallbackWorld = resolveMainWorld();
+                NamespacedKey fallbackKey = fallbackWorld != null ? fallbackWorld.getKey() : null;
                 CompletableFuture<Boolean> unloadFuture = wasLoaded
-                        ? worldManager.unload(worldKey, Bukkit.getWorlds().getFirst().getKey(), true)
+                        ? worldManager.unload(worldKey, fallbackKey, true)
                         : CompletableFuture.completedFuture(true);
 
                 unloadFuture.thenCompose(unloaded -> {
@@ -201,7 +239,7 @@ public class WorldExportService {
                         }
                     }, r -> Bukkit.getScheduler().runTaskAsynchronously(plugin, r));
                 }).whenComplete((v, ex) -> {
-                    exportingWorlds.remove(worldKey);
+                    releaseExport(worldKey);
                     if (wasLoaded) {
                         Optional<ManagedWorld> managedWorldOpt = worldManager.getManagedWorld(worldKey);
                         if (managedWorldOpt.isPresent()) {
@@ -245,7 +283,7 @@ public class WorldExportService {
                     }
                 });
             } catch (Throwable t) {
-                exportingWorlds.remove(worldKey);
+                releaseExport(worldKey);
                 exportFuture.completeExceptionally(t);
             }
         };

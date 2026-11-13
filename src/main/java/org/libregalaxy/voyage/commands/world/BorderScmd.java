@@ -6,18 +6,18 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
-import me.itsmcb.vexelcore.bukkit.api.framework.VexelPlayerSubCommand;
+import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
-import org.bukkit.entity.Player;
-import org.libregalaxy.voyage.VoyageContext;
+import org.bukkit.command.CommandSender;
 import org.jetbrains.annotations.NotNull;
+import org.libregalaxy.voyage.VoyageContext;
 
 import java.util.List;
 
-public class BorderScmd extends VexelPlayerSubCommand<VoyageContext> {
+public class BorderScmd extends VexelSenderSubCommand<VoyageContext> {
 
     private final VexelArg<NamespacedKey> WORLD_ARG;
     private final VexelArg<String> SIZE_ARG;
@@ -37,13 +37,13 @@ public class BorderScmd extends VexelPlayerSubCommand<VoyageContext> {
     @Override public @NotNull List<VexelArg<?>> getArguments() { return List.of(WORLD_ARG, SIZE_ARG); }
 
     @Override
-    public void execute(@NotNull CommandContext<CommandSourceStack> ctx, @NotNull Player player) {
+    public void execute(@NotNull CommandContext<CommandSourceStack> ctx, @NotNull CommandSender sender) {
         NamespacedKey key = requireArg(ctx, WORLD_ARG);
         String sizeInput = requireArg(ctx, SIZE_ARG);
 
         World world = Bukkit.getWorld(key);
         if (world == null) {
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>World <white><world></white> must be loaded to modify its border.</red>", Placeholder.unparsed("world", key.asString()));
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>World <white><world></white> must be loaded to modify its border.</red>", Placeholder.unparsed("world", key.asString()));
             return;
         }
 
@@ -59,12 +59,12 @@ public class BorderScmd extends VexelPlayerSubCommand<VoyageContext> {
                     throw new NumberFormatException("Not a finite number");
                 }
             } catch (NumberFormatException e) {
-                TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Invalid size '<white><input></white>'. Must be a finite number or 'reset'.</red>",
+                TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Invalid size '<white><input></white>'. Must be a finite number or 'reset'.</red>",
                         Placeholder.unparsed("input", sizeInput));
                 return;
             }
             if (size < 1.0) {
-                TextUtils.send(player, "<color:#e98df5>ℹ</color> <red>Border size must be at least 1.0 block.</red>");
+                TextUtils.send(sender, "<color:#e98df5>ℹ</color> <red>Border size must be at least 1.0 block.</red>");
                 return;
             }
         }
@@ -73,10 +73,10 @@ public class BorderScmd extends VexelPlayerSubCommand<VoyageContext> {
         world.save();
 
         if (isReset) {
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <green>Removed world border for <white><world></white> (set to maximum size).</green>",
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <green>Removed world border for <white><world></white> (set to maximum size).</green>",
                     Placeholder.unparsed("world", key.asString()));
         } else {
-            TextUtils.send(player, "<color:#e98df5>ℹ</color> <green>Set world border for <white><world></white> to <white><size></white> blocks.</green>",
+            TextUtils.send(sender, "<color:#e98df5>ℹ</color> <green>Set world border for <white><world></white> to <white><size></white> blocks.</green>",
                     Placeholder.unparsed("world", key.asString()), Placeholder.unparsed("size", formatSize(size)));
         }
     }

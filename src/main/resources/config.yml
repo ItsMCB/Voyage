@@ -19,7 +19,7 @@ database:
 
 # World Export Archive Settings
 export:
-  # Maximum number of recent .zip exports to retain in exports/ before pruning
+  # Maximum number of recent .zip exports to retain in plugins/Voyage/exports/ before pruning
   max-retained: 5
   # Maximum age in days before an export is automatically pruned (0 to disable)
   retention-days: 7

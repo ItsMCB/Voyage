@@ -6,6 +6,8 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import me.itsmcb.vexelcore.bukkit.api.framework.TextUtils;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelArg;
 import me.itsmcb.vexelcore.bukkit.api.framework.VexelSenderSubCommand;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.jetbrains.annotations.NotNull;
 import org.libregalaxy.voyage.VoyageContext;
@@ -42,10 +44,16 @@ public class ResetDbScmd extends VexelSenderSubCommand<VoyageContext> {
         TextUtils.send(sender, "<color:#e98df5>ℹ</color> <yellow>Wiping voyage.db and rebuilding schemas...</yellow>");
 
         context.getDatabaseService().resetDatabase().thenRun(() -> {
-            context.getWorldManager().reload();
-            TextUtils.send(sender, "<color:#e98df5>✅</color> <green>Database reset and schema rebuild successful!</green>");
+            Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
+                context.getWorldManager().reload();
+                TextUtils.send(sender, "<color:#e98df5>✅</color> <green>Database reset and schema rebuild successful!</green>");
+            });
         }).exceptionally(ex -> {
-            TextUtils.send(sender, "<color:#e98df5>❌</color> <red>Database reset failed: " + ex.getMessage() + "</red>");
+            Bukkit.getScheduler().runTask(context.getPlugin(), () -> {
+                Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                TextUtils.send(sender, "<color:#e98df5>❌</color> <red>Database reset failed: <error></red>",
+                        Placeholder.unparsed("error", cause != null && cause.getMessage() != null ? cause.getMessage() : "unknown error"));
+            });
             return null;
         });
     }

@@ -18,3 +18,69 @@ dependencies:
       required: true
       load: BEFORE
       join-classpath: true
+
+permissions:
+  voyage.admin:
+    description: Grants full access to all Voyage administrative and world management commands.
+    default: op
+    children:
+      voyage.world: true
+      voyage.border: true
+      voyage.clone: true
+      voyage.create: true
+      voyage.delete: true
+      voyage.evacuate: true
+      voyage.export: true
+      voyage.info: true
+      voyage.list: true
+      voyage.load: true
+      voyage.manage: true
+      voyage.portallink: true
+      voyage.profilelink: true
+      voyage.teleport: true
+      voyage.unload: true
+  voyage.world:
+    description: Grants access to the base /world command router.
+    default: op
+  voyage.border:
+    description: Allows modifying or resetting world borders.
+    default: op
+  voyage.clone:
+    description: Allows cloning dimensions.
+    default: op
+  voyage.create:
+    description: Allows creating new dimensions.
+    default: op
+  voyage.delete:
+    description: Allows permanently deleting managed dimensions.
+    default: op
+  voyage.evacuate:
+    description: Allows evacuating players from a dimension.
+    default: op
+  voyage.export:
+    description: Allows exporting dimensions to zip archives.
+    default: op
+  voyage.info:
+    description: Allows viewing dimension information and gamerules.
+    default: op
+  voyage.list:
+    description: Allows listing dimensions.
+    default: op
+  voyage.load:
+    description: Allows loading offline managed dimensions.
+    default: op
+  voyage.manage:
+    description: Allows tracking or untracking dimensions.
+    default: op
+  voyage.portallink:
+    description: Allows configuring dimension portal links.
+    default: op
+  voyage.profilelink:
+    description: Allows linking or isolating dimension player data profiles.
+    default: op
+  voyage.teleport:
+    description: Allows teleporting between dimensions.
+    default: op
+  voyage.unload:
+    description: Allows unloading active managed dimensions.
+    default: op

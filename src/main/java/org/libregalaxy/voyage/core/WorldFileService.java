@@ -7,7 +7,6 @@ import org.bukkit.World;
 import org.bukkit.WorldType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.libregalaxy.voyage.api.VoyageAPI;
 import org.libregalaxy.voyage.core.migration.LevelDatNbt;
 
@@ -22,6 +21,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class WorldFileService {
+
+    public static final int MAX_ZIP_ENTRIES = 65_536;
+    public static final long MAX_ZIP_TOTAL_BYTES = 10L * 1024L * 1024L * 1024L; // 10 GiB cap
 
     private final JavaPlugin plugin;
 
@@ -186,7 +188,8 @@ public class WorldFileService {
     }
 
     /**
-     * Safely unpacks a zip archive into targetDir with canonical path verification to prevent ZipSlip attacks.
+     * Safely unpacks a zip archive into targetDir with canonical path verification to prevent ZipSlip
+     * and size/entry limits to prevent zip bomb attacks.
      */
     public void extractZipArchive(@NotNull Path zipFile, @NotNull Path targetDir) throws IOException {
         String zipName = zipFile.getFileName().toString();
@@ -196,10 +199,17 @@ public class WorldFileService {
             Files.createDirectories(canonicalTargetDir);
         }
 
+        long totalBytesWritten = 0L;
+        int entryCount = 0;
+
         try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(Files.newInputStream(zipFile)))) {
             ZipEntry entry;
             byte[] buf = new byte[8192];
             while ((entry = zis.getNextEntry()) != null) {
+                if (++entryCount > MAX_ZIP_ENTRIES) {
+                    throw new IOException("Archive exceeds maximum entry limit (" + MAX_ZIP_ENTRIES + "): " + zipName);
+                }
+
                 String rawName = entry.getName().replace('\\', '/');
 
                 while (rawName.startsWith("/") || rawName.startsWith("./")) {
@@ -229,6 +239,10 @@ public class WorldFileService {
                     try (OutputStream fos = new BufferedOutputStream(Files.newOutputStream(resolved))) {
                         int len;
                         while ((len = zis.read(buf)) != -1) {
+                            totalBytesWritten += len;
+                            if (totalBytesWritten > MAX_ZIP_TOTAL_BYTES) {
+                                throw new IOException("Archive exceeds maximum uncompressed size limit (10 GiB): " + zipName);
+                            }
                             fos.write(buf, 0, len);
                         }
                     }

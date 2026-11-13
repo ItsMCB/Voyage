@@ -386,9 +386,10 @@ public class PlayerProfileService {
     public void saveAllOnlineAsync() {
         List<PlayerStateSerializer.PlayerStateCapture> captures = new ArrayList<>();
         PlayerDataManager pdm = context.getService(PlayerDataManager.class);
+        if (pdm == null) return;
         List<Player> snapshot = List.copyOf(Bukkit.getOnlinePlayers());
         for (Player p : snapshot) {
-            if (pdm != null && pdm.isSwitchingProfiles(p.getUniqueId())) continue;
+            if (pdm.isSwitchingProfiles(p.getUniqueId())) continue;
             captures.add(new PlayerStateSerializer.PlayerStateCapture(
                     getProfileId(p.getWorld().getKey()),
                     p.getUniqueId(),
@@ -763,10 +764,14 @@ public class PlayerProfileService {
                         // Hot-swap state for any online players in worldKey
                         World bw = Bukkit.getWorld(worldKey);
                         if (bw != null) {
-                            for (Player p : bw.getPlayers()) {
-                                PlayerStateSerializer.PlayerState newState = loadPlayerStateFromFile(targetId, p.getUniqueId());
-                                context.getService(PlayerDataManager.class).getStateSerializer().applyPlayerState(p, bw, newState, true);
-                                p.updateInventory();
+                            PlayerDataManager pdm = context.getService(PlayerDataManager.class);
+                            if (pdm != null) {
+                                for (Player p : bw.getPlayers()) {
+                                    PlayerStateSerializer.PlayerState newState = loadPlayerStateFromFile(targetId, p.getUniqueId());
+                                    pdm.updateActiveProfile(p.getUniqueId(), targetId);
+                                    pdm.getStateSerializer().applyPlayerState(p, bw, newState, true);
+                                    p.updateInventory();
+                                }
                             }
                         }
 
@@ -863,10 +868,14 @@ public class PlayerProfileService {
 
                     World bw = Bukkit.getWorld(worldKey);
                     if (bw != null) {
-                        for (Player p : bw.getPlayers()) {
-                            PlayerStateSerializer.PlayerState newState = cloneData ? loadPlayerStateFromFile(targetId, p.getUniqueId()) : null;
-                            context.getService(PlayerDataManager.class).getStateSerializer().applyPlayerState(p, bw, newState, true);
-                            p.updateInventory();
+                        PlayerDataManager pdm = context.getService(PlayerDataManager.class);
+                        if (pdm != null) {
+                            for (Player p : bw.getPlayers()) {
+                                PlayerStateSerializer.PlayerState newState = cloneData ? loadPlayerStateFromFile(targetId, p.getUniqueId()) : null;
+                                pdm.updateActiveProfile(p.getUniqueId(), targetId);
+                                pdm.getStateSerializer().applyPlayerState(p, bw, newState, true);
+                                p.updateInventory();
+                            }
                         }
                     }
 

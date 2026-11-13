@@ -1,11 +1,13 @@
 package org.libregalaxy.voyage.core;
 
+import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.PlayerInventory;
 import org.junit.jupiter.api.AfterEach;
@@ -21,6 +23,7 @@ import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -61,12 +64,11 @@ class PlayerDataManagerTest {
     void onPlayerTeleport_nullToWorld_doesNotThrow() {
         Player player = mock(Player.class);
         UUID uuid = UUID.randomUUID();
-        lenient().when(player.getUniqueId()).thenReturn(uuid); // Prevent NPE in ConcurrentHashMap
+        lenient().when(player.getUniqueId()).thenReturn(uuid);
 
         World mockFromWorld = mock(World.class);
         lenient().when(mockFromWorld.getKey()).thenReturn(NamespacedKey.fromString("custom:from"));
 
-        // Simulate a teleport event where the destination world is null
         PlayerTeleportEvent event = new PlayerTeleportEvent(
                 player,
                 new Location(mockFromWorld, 0, 0, 0),
@@ -74,7 +76,6 @@ class PlayerDataManagerTest {
                 PlayerTeleportEvent.TeleportCause.PLUGIN
         );
 
-        // This should fail safely without throwing NullPointerException
         assertDoesNotThrow(() -> pdm.onPlayerTeleport(event));
     }
 
@@ -85,7 +86,6 @@ class PlayerDataManagerTest {
         lenient().when(player.getUniqueId()).thenReturn(uuid);
         lenient().when(player.getName()).thenReturn("TestPlayer");
 
-        // Mock inventory and potion effects to prevent NPE in applyPlayerState when state is null
         PlayerInventory mockInventory = mock(PlayerInventory.class);
         lenient().when(player.getInventory()).thenReturn(mockInventory);
         lenient().when(player.getEnderChest()).thenReturn(mock(PlayerInventory.class));
@@ -111,5 +111,84 @@ class PlayerDataManagerTest {
         assertDoesNotThrow(() -> pdm.onWorldChange(event));
 
         verify(mockStateSerializer).capturePlayerState(same(player), same(fromWorld), isNull());
+    }
+
+    @Test
+    void onWorldChange_rapidChainedTransitions_doesNotSaveUnswappedIntermediateProfile() {
+        Player player = mock(Player.class);
+        UUID uuid = UUID.randomUUID();
+        when(player.getUniqueId()).thenReturn(uuid);
+        when(player.getName()).thenReturn("RapidTraveler");
+        when(player.isOnline()).thenReturn(true);
+
+        World worldA = mock(World.class);
+        World worldB = mock(World.class);
+        World worldC = mock(World.class);
+
+        when(worldA.getKey()).thenReturn(NamespacedKey.fromString("custom:world_a"));
+        when(worldB.getKey()).thenReturn(NamespacedKey.fromString("custom:world_b"));
+        when(worldC.getKey()).thenReturn(NamespacedKey.fromString("custom:world_c"));
+
+        when(mockProfileService.getProfileId(worldA.getKey())).thenReturn("isolated:custom_world_a");
+        when(mockProfileService.getProfileId(worldB.getKey())).thenReturn("isolated:custom_world_b");
+        when(mockProfileService.getProfileId(worldC.getKey())).thenReturn("isolated:custom_world_c");
+
+        PlayerStateSerializer.PlayerState stateA = new PlayerStateSerializer.PlayerState();
+        PlayerStateSerializer.PlayerState stateB = new PlayerStateSerializer.PlayerState();
+        PlayerStateSerializer.PlayerState stateC = new PlayerStateSerializer.PlayerState();
+
+        when(mockStateSerializer.capturePlayerState(eq(player), eq(worldA), any())).thenReturn(stateA);
+        when(mockProfileService.loadPlayerStateFromFile("isolated:custom_world_b", uuid)).thenReturn(stateB);
+        when(mockProfileService.loadPlayerStateFromFile("isolated:custom_world_c", uuid)).thenReturn(stateC);
+
+        // 1. Transition A -> B begins (async load of B is queued, not yet applied on main thread)
+        when(player.getWorld()).thenReturn(worldB);
+        pdm.onWorldChange(new PlayerChangedWorldEvent(player, worldA));
+
+        assertTrue(pdm.isSwitchingProfiles(uuid), "Player must be marked as switching profiles during A -> B");
+        verify(mockStateSerializer, times(1)).capturePlayerState(same(player), same(worldA), any());
+
+        // 2. Immediately transition B -> C BEFORE B's async load finishes on the main thread
+        when(player.getWorld()).thenReturn(worldC);
+        pdm.onWorldChange(new PlayerChangedWorldEvent(player, worldB));
+
+        // CRITICAL: worldB must NEVER have its state captured because the player still holds worldA's inventory!
+        verify(mockStateSerializer, never()).capturePlayerState(same(player), same(worldB), any());
+        assertTrue(pdm.isSwitchingProfiles(uuid), "Player must remain in switchingProfiles during B -> C");
+
+        // 3. Flush async and main-thread scheduler tasks
+        server.getScheduler().waitAsyncTasksFinished();
+        server.getScheduler().performOneTick();
+
+        // Only stateC should have been applied, and switchingProfiles should now be cleared
+        verify(mockStateSerializer, never()).applyPlayerState(same(player), any(), same(stateB), anyBoolean());
+        verify(mockStateSerializer, times(1)).applyPlayerState(same(player), same(worldC), same(stateC), eq(true));
+        assertFalse(pdm.isSwitchingProfiles(uuid), "switchingProfiles must be cleared after latest generation finishes");
+    }
+
+    @Test
+    void onPlayerJoin_returningPlayerWithNullDatabaseState_doesNotClearInventoryOrTeleportToSpawn() {
+        Player player = mock(Player.class);
+        UUID uuid = UUID.randomUUID();
+        when(player.getUniqueId()).thenReturn(uuid);
+        when(player.getName()).thenReturn("ReturningVeteran");
+        when(player.hasPlayedBefore()).thenReturn(true);
+        when(player.isOnline()).thenReturn(true);
+
+        World world = mock(World.class);
+        when(world.getKey()).thenReturn(NamespacedKey.minecraft("overworld"));
+        when(player.getWorld()).thenReturn(world);
+
+        when(mockProfileService.getProfileId(world.getKey())).thenReturn("group:default_group");
+        when(mockProfileService.loadPlayerStateFromFile("group:default_group", uuid)).thenReturn(null);
+
+        pdm.onPlayerJoin(new PlayerJoinEvent(player, Component.empty()));
+
+        server.getScheduler().waitAsyncTasksFinished();
+        server.getScheduler().performOneTick();
+
+        // Both clearIfNull and restoreLocation must be false when state is null on login
+        verify(mockStateSerializer).applyPlayerState(same(player), same(world), isNull(), eq(false), eq(false));
+        assertFalse(pdm.isSwitchingProfiles(uuid));
     }
 }
