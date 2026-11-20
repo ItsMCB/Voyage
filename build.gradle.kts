@@ -15,7 +15,7 @@ dependencies {
     // Paper 26.2 API
     compileOnly("io.papermc.paper:paper-api:26.2.build.+")
     compileOnly("net.kyori:adventure-nbt:5.1.1")
-    compileOnly(files("/home/martin/Repos/VexelCore/bukkit/build/libs/VexelCore-Bukkit-1.0.1-SNAPSHOT.jar"))
+    compileOnly(files("/home/martin/Repos/VexelCore/bukkit/build/libs/VexelCore-Bukkit-2.0.1-SNAPSHOT.jar"))
 
     // Embedded SQLite & HikariCP (Loaded at runtime via VoyagePluginLoader / Paper PluginLoader)
     compileOnly("org.xerial:sqlite-jdbc:3.49.1.0")
@@ -25,7 +25,7 @@ dependencies {
     testImplementation("io.papermc.paper:paper-api:26.2.build.+")
     testImplementation("net.kyori:adventure-nbt:5.1.1")
     testImplementation("org.mockbukkit.mockbukkit:mockbukkit-v26.2:4.116.1")
-    testImplementation(files("/home/martin/Repos/VexelCore/bukkit/build/libs/VexelCore-Bukkit-1.0.1-SNAPSHOT.jar"))
+    testImplementation(files("/home/martin/Repos/VexelCore/bukkit/build/libs/VexelCore-Bukkit-2.0.1-SNAPSHOT.jar"))
 
     // SQLite & Connection Pool on test classpath for MockBukkit execution
     testImplementation("org.xerial:sqlite-jdbc:3.49.1.0")
